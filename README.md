@@ -29,8 +29,20 @@ Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024
 
 # To Do
 
-- Clean up data fetcher script
-- Store everything as a CSV
-- Clean the data
-- Run a basic linear regression model
-- check predictions
+- [x] Clean up data fetcher script
+- [x] Store everything as a CSV
+- [x] Clean the data
+- [x] Run a basic linear regression model
+- [ ] Check predictions
+
+# Notes
+
+## March 2, 2024
+Clearly, just running a linear regression using time/date as a feature doesn't work. Cuz it just keeps decreasing the temp assuming its a linear function.
+
+Need to use more features.
+
+Possible features:
+- Humidity
+- Sunshine Duration
+- precipitation_probability_max
