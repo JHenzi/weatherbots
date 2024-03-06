@@ -34,6 +34,8 @@ Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024
 - [x] Clean the data
 - [x] Run a basic linear regression model
 - [ ] Check predictions
+- [ ] Compare different types of models and see what could possibly work the best
+- [ ] Use more features
 
 # Notes
 
@@ -46,3 +48,9 @@ Possible features:
 - Humidity
 - Sunshine Duration
 - precipitation_probability_max
+- Snow prob
+- Wind info
+- 
+
+Idea: convert date to day of the year (so a value out of 365)
+and then use all features to figure out what temp
