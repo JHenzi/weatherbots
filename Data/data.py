@@ -16,7 +16,7 @@ url = "https://archive-api.open-meteo.com/v1/archive"
 params = {
     "latitude": [40.79736, 41.78701, 30.1444, 25.7738],
     "longitude": [-73.97785, -87.77166, -97.66876, -80.1936],
-    "start_date": "2000-03-01",
+    "start_date": "2000-01-01",
     "end_date": "2024-03-01",
     "hourly": "temperature_2m"
 }
