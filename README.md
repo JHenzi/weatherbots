@@ -18,7 +18,7 @@ Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024
 - Midway International Airport, Chicago, Illinois - 60638
   41.78701,-87.77166
 - Bergstrom International Airport, Austin, Texas - 78719
-  30.14440,-97.66876
+  30.14440,-97.66876  
 - Miami, Florida - 33101
   25.77380,-80.19360
 
