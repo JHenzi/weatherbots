@@ -8,8 +8,11 @@ Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024
 
 # Data Sources
 
-- National Weather Data: https://www.weather.gov/documentation/services-web-api
 - Open-Meteo
+- Visual Crossing
+- MeteoStat
+- NCEI NOAA
+- National Weather Data: https://www.weather.gov/documentation/services-web-api
 
 # Zip Codes
 
