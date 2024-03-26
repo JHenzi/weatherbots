@@ -1,0 +1,3 @@
+date,temperature_2m_max,temperature_2m_min,sunshine_duration,precipitation_hours,wind_speed_10m_max
+2024-03-24 00:00:00+00:00,25.036999,15.987,39995.43,5.0,23.400002
+2024-03-25 00:00:00+00:00,,,,0.0,
