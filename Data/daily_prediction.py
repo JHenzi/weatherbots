@@ -224,7 +224,7 @@ def readStoredCSVData(fileName):
 
     # Store the merged_df DataFrame to disk for later computations
     # for i in range(len(cities)):
-    # merged_dfs[i].to_pickle("./merged_df_" + cities[i] + ".pkl")
+    # merged_dfs[i].to_pickle("./Data/merged_df_" + cities[i] + ".pkl")
 
 
 def getDailyData(start_date, end_date):
@@ -232,7 +232,7 @@ def getDailyData(start_date, end_date):
     city_history_dfs = []
 
     for i in range(len(cities)):
-        city_history_dfs.append(pd.read_pickle("./merged_df_" + cities[i] + ".pkl"))
+        city_history_dfs.append(pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl"))
 
     print("Loaded DFs for " + str(len(city_history_dfs)) + " cities.\n")
     # print(city_history_dfs[0].info())
@@ -358,7 +358,7 @@ def getDailyData(start_date, end_date):
     def appendDailyData():
         updatedCitiesDfs = []
         for i in range(len(cities)):
-            city_history_dfs.append(pd.read_pickle("./merged_df_" + cities[i] + ".pkl"))
+            city_history_dfs.append(pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl"))
 
         for i in range(len(cities)):
             updatedCitiesDfs.append(
@@ -373,10 +373,10 @@ def getDailyData(start_date, end_date):
 
     # Store the merged_df DataFrame to disk for later computations
     for i in range(len(cities)):
-        latest_data[i].to_pickle("./prediction_merged_df_" + cities[i] + ".pkl")
+        latest_data[i].to_pickle("./Data/prediction_merged_df_" + cities[i] + ".pkl")
 
     # Clean The Data
-    def cleanAllData(fileNamePrefix="./merged_df_", outputFilePrefix="./data_cleaned_"):
+    def cleanAllData(fileNamePrefix="./Data/merged_df_", outputFilePrefix="./Data/data_cleaned_"):
         # Unpickle the DataFrames
         city_history_dfs = []
 
@@ -429,13 +429,13 @@ def getDailyData(start_date, end_date):
             ny_data.to_pickle(outputFilePrefix + cities[i] + ".pkl")
 
     # cleanAllData()
-    cleanAllData("./prediction_merged_df_", "./prediction_data_cleaned_")
+    cleanAllData("./Data/prediction_merged_df_", "./Data/prediction_data_cleaned_")
     print("New data has been cleaned!")
 
 
 def getPrediction(city, name_prefix="", offset=0):
-    model = tf.keras.models.load_model(name_prefix + "model_" + city + ".keras")
-    df = pd.read_pickle("./prediction_data_cleaned_" + city + ".pkl")
+    model = tf.keras.models.load_model("./Data/" + name_prefix + "model_" + city + ".keras")
+    df = pd.read_pickle("./Data/prediction_data_cleaned_" + city + ".pkl")
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
     df = df.rename(
