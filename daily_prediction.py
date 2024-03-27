@@ -37,7 +37,7 @@ longitude = [-73.97785, -87.77166, -97.66876, -80.1936]
 cities = ["ny", "il", "tx", "fl"]
 stations_ncei = ["USW00094728", "USW00014819", "USW00013904", "USC00086315"]
 start_date = "2016-01-01"
-end_date = "2024-03-24"
+# end_date = "2024-03-24"
 time_steps = 60
 
 # ## API Calls to collect historical weather data
@@ -101,7 +101,7 @@ def getDataFromOpenMeteo(latitude, longitude, startDate, endDate, fileName):
 
     daily_dataframe = pd.DataFrame(data=daily_data)
     daily_dataframe.to_csv(
-        "openMeteo_" + "_".join([fileName, startDate, "to", endDate]) + ".csv",
+        "./Data/openMeteo_" + "_".join([fileName, startDate, "to", endDate]) + ".csv",
         index=False,
     )
     return daily_dataframe
@@ -137,7 +137,7 @@ def getDataFromVisualCrossing(latitude, longitude, startDate, endDate, fileName)
 
     response = requests.request("GET", url, headers=headers, data=payload)
     pathlib.Path(
-        "visualCrossing_" + "_".join([fileName, startDate, "to", endDate]) + ".json"
+        "./Data/visualCrossing_" + "_".join([fileName, startDate, "to", endDate]) + ".json"
     ).write_bytes(response.content)
 
     print(response.text)
@@ -168,7 +168,7 @@ def getDataFromMeteostat(latitude, longitude, startDate, endDate, fileName):
     # print(data['time'])
     data.index.names = ["date"]
     data = data.add_suffix("_ms")
-    data.to_csv("meteoStat_" + "_".join([fileName, startDate, "to", endDate]) + ".csv")
+    data.to_csv("./Data/meteoStat_" + "_".join([fileName, startDate, "to", endDate]) + ".csv")
     return data
     # data.plot(y=['tavg', 'tmin', 'tmax'])
     # plt.show()
@@ -201,7 +201,7 @@ def getDataFromNCEI(station, startDate, endDate, fileName):
         # Convert the json data from the NOAA to a dataframe
         data_df = pd.DataFrame.from_records(data)
         data_df.to_csv(
-            "ncei_" + "_".join([fileName, startDate, "to", endDate]) + ".csv"
+            "./Data/ncei_" + "_".join([fileName, startDate, "to", endDate]) + ".csv"
         )
     except:
         print("Couldn't get NCEI data for ", start_date, " to ", end_date, data)
@@ -229,6 +229,7 @@ def readStoredCSVData(fileName):
 
 def getDailyData(start_date, end_date):
     # Unpickle the DataFrames
+    print(f"Getting daily data for end_date {end_date}\n")
     city_history_dfs = []
 
     for i in range(len(cities)):
@@ -271,7 +272,7 @@ def getDailyData(start_date, end_date):
     vc_data = []
     for i in range(len(latitude)):
         fileName = (
-            "visualCrossing_"
+            "./Data/visualCrossing_"
             + "_".join([cities[i], start_date, "to", end_date])
             + ".json"
         )
@@ -288,7 +289,7 @@ def getDailyData(start_date, end_date):
     om_dfs = []
     for i in range(len(latitude)):
         fileName = (
-            "openMeteo_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+            "./Data/openMeteo_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
         )
         om_df = readStoredCSVData(fileName)
         # print(type(om_df['date'][0]))
@@ -300,7 +301,7 @@ def getDailyData(start_date, end_date):
     ms_dfs = []
     for i in range(len(latitude)):
         fileName = (
-            "meteoStat_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+            "./Data/meteoStat_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
         )
         ms_df = readStoredCSVData(fileName)
         ms_df["date"] = ms_df["date"].apply(lambda x: x[:10])
@@ -309,7 +310,7 @@ def getDailyData(start_date, end_date):
 
     ncei_dfs = []
     for i in range(len(cities)):
-        fileName = "ncei_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+        fileName = "./Data/ncei_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
         # print(fileName)
         ncei_df = readStoredCSVData(fileName)
         ncei_df.columns = map(str.lower, ncei_df.columns)
@@ -468,7 +469,8 @@ def getPrediction(city, name_prefix="", offset=0):
     old_data = df[-(time_steps):]
     if offset != 0:
         old_data = df[-(time_steps + offset) : -offset]
-    old_data.fillna(old_data.mean(), inplace=True)
+    # old_data.fillna(old_data.mean(), inplace=True)
+    old_data.fillna(method='ffill', inplace=True)
 
     last_days_data = np.array(old_data)
     # print(last_days_data)
@@ -485,9 +487,12 @@ def getPrediction(city, name_prefix="", offset=0):
 
 
 start_date = "2024-03-24"
-end_date = "2024-03-25"
+end_date = "2024-03-26"
 
-# getDailyData(start_date, end_date)
+# ==================================================================================
+# IMPORTANT: UNCOMMENT THIS TO ACTUALLY GET DAILY DATA
+# ==================================================================================
+getDailyData(start_date, end_date)
 prediction_results = []
 offset = 0
 
@@ -499,5 +504,5 @@ for offset in range(1):
       pred = getPrediction(city)
       prediction_results.append({"date": str(pred_date)[:10], "city": city, "tmax_predicted": pred})
 df_predictions = pd.DataFrame(prediction_results)
-df_predictions.to_csv("predictions_final.csv")
+df_predictions.to_csv("predictions_final.csv", mode='a', header=False)
 pprint.pp(prediction_results)
