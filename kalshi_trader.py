@@ -24,8 +24,6 @@ latitude = [40.79736, 41.78701, 30.1444, 25.7738]
 longitude = [-73.97785, -87.77166, -97.66876, -80.1936]
 cities = ["ny", "il", "tx", "fl"]
 stations_ncei = ["USW00094728", "USW00014819", "USW00013904", "USC00086315"]
-start_date = "2016-01-01"
-end_date = "2024-03-24"
 time_steps = 60
 
 
@@ -82,8 +80,8 @@ def makeTrade(pred, eventsResponse):
                       'action':'buy',
                       'side':'no',
                       'count':10,
-                      'yes_price':None, # yes_price = 100 - no_price
-                      'no_price':30, # no_price = 100 - yes_price
+                      'yes_price':100,
+                      'no_price':30,
                       'expiration_ts':None,
                       'sell_position_floor':None,
                       'buy_max_cost':None}
@@ -117,12 +115,14 @@ def makeTrade(pred, eventsResponse):
       print('\nThe exchange is not trading active, no orders will be sent right now.')
 
 for i in range(len(seriesTickers)):
-  print(f"----------- {seriesTickers[i]} ------------")
+  print(f"----------- {seriesTickers[i]} -----------")
   eventsResponse = getTempRanges(seriesTickers[i])
   df = pd.read_csv("predictions_final.csv")
   today = datetime.now()
   # Format the date
   today_filter = today.strftime('%Y-%m-%d')
+  print(f"=========== {today_filter} ===========")
   filtered_df = df[(df['date'] == today_filter) & (df['city'] == cities[i])]
+  print(filtered_df)
   pred = float(filtered_df['tmax_predicted'])
   makeTrade(pred, eventsResponse)
