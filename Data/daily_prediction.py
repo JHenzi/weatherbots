@@ -37,7 +37,7 @@ longitude = [-73.97785, -87.77166, -97.66876, -80.1936]
 cities = ["ny", "il", "tx", "fl"]
 stations_ncei = ["USW00094728", "USW00014819", "USW00013904", "USC00086315"]
 start_date = "2016-01-01"
-end_date = "2024-03-24"
+# end_date = "2024-03-24"
 time_steps = 60
 
 # ## API Calls to collect historical weather data
@@ -229,6 +229,7 @@ def readStoredCSVData(fileName):
 
 def getDailyData(start_date, end_date):
     # Unpickle the DataFrames
+    print(f"Getting daily data for end_date {end_date}\n")
     city_history_dfs = []
 
     for i in range(len(cities)):
@@ -468,7 +469,8 @@ def getPrediction(city, name_prefix="", offset=0):
     old_data = df[-(time_steps):]
     if offset != 0:
         old_data = df[-(time_steps + offset) : -offset]
-    old_data.fillna(old_data.mean(), inplace=True)
+    # old_data.fillna(old_data.mean(), inplace=True)
+    old_data.fillna(method='ffill', inplace=True)
 
     last_days_data = np.array(old_data)
     # print(last_days_data)
@@ -485,9 +487,12 @@ def getPrediction(city, name_prefix="", offset=0):
 
 
 start_date = "2024-03-24"
-end_date = "2024-03-25"
+end_date = "2024-03-27"
 
-# getDailyData(start_date, end_date)
+# ==================================================================================
+# IMPORTANT: UNCOMMENT THIS TO ACTUALLY GET DAILY DATA
+# ==================================================================================
+getDailyData(start_date, end_date)
 prediction_results = []
 offset = 0
 

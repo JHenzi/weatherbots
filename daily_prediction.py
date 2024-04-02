@@ -487,7 +487,11 @@ def getPrediction(city, name_prefix="", offset=0):
 
 
 start_date = "2024-03-24"
-end_date = "2024-03-26"
+# end_date = "2024-03-28"
+today = datetime.now()
+  # Format the date
+today_filter = today.strftime('%Y-%m-%d')
+end_date = today_filter
 
 # ==================================================================================
 # IMPORTANT: UNCOMMENT THIS TO ACTUALLY GET DAILY DATA
@@ -499,6 +503,8 @@ offset = 0
 for offset in range(1):
   for city in cities:
       from datetime import timedelta
+      print(f"----------- {city} -----------")
+      print(f"=========== {today_filter} ===========")
       pred_date = pd.to_datetime(end_date, format = "%Y-%m-%d") + timedelta(days=1)
     #   pred_date = end_date
       pred = getPrediction(city)
