@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
 import pprint
-import warnings 
+import warnings
 import uuid
 import kalshi_python
 from kalshi_python.models import *
@@ -137,7 +137,9 @@ def getDataFromVisualCrossing(latitude, longitude, startDate, endDate, fileName)
 
     response = requests.request("GET", url, headers=headers, data=payload)
     pathlib.Path(
-        "./Data/visualCrossing_" + "_".join([fileName, startDate, "to", endDate]) + ".json"
+        "./Data/visualCrossing_"
+        + "_".join([fileName, startDate, "to", endDate])
+        + ".json"
     ).write_bytes(response.content)
 
     print(response.text)
@@ -168,7 +170,9 @@ def getDataFromMeteostat(latitude, longitude, startDate, endDate, fileName):
     # print(data['time'])
     data.index.names = ["date"]
     data = data.add_suffix("_ms")
-    data.to_csv("./Data/meteoStat_" + "_".join([fileName, startDate, "to", endDate]) + ".csv")
+    data.to_csv(
+        "./Data/meteoStat_" + "_".join([fileName, startDate, "to", endDate]) + ".csv"
+    )
     return data
     # data.plot(y=['tavg', 'tmin', 'tmax'])
     # plt.show()
@@ -233,7 +237,9 @@ def getDailyData(start_date, end_date):
     city_history_dfs = []
 
     for i in range(len(cities)):
-        city_history_dfs.append(pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl"))
+        city_history_dfs.append(
+            pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl")
+        )
 
     print("Loaded DFs for " + str(len(city_history_dfs)) + " cities.\n")
     # print(city_history_dfs[0].info())
@@ -289,7 +295,9 @@ def getDailyData(start_date, end_date):
     om_dfs = []
     for i in range(len(latitude)):
         fileName = (
-            "./Data/openMeteo_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+            "./Data/openMeteo_"
+            + "_".join([cities[i], start_date, "to", end_date])
+            + ".csv"
         )
         om_df = readStoredCSVData(fileName)
         # print(type(om_df['date'][0]))
@@ -301,7 +309,9 @@ def getDailyData(start_date, end_date):
     ms_dfs = []
     for i in range(len(latitude)):
         fileName = (
-            "./Data/meteoStat_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+            "./Data/meteoStat_"
+            + "_".join([cities[i], start_date, "to", end_date])
+            + ".csv"
         )
         ms_df = readStoredCSVData(fileName)
         ms_df["date"] = ms_df["date"].apply(lambda x: x[:10])
@@ -310,7 +320,9 @@ def getDailyData(start_date, end_date):
 
     ncei_dfs = []
     for i in range(len(cities)):
-        fileName = "./Data/ncei_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+        fileName = (
+            "./Data/ncei_" + "_".join([cities[i], start_date, "to", end_date]) + ".csv"
+        )
         # print(fileName)
         ncei_df = readStoredCSVData(fileName)
         ncei_df.columns = map(str.lower, ncei_df.columns)
@@ -359,7 +371,9 @@ def getDailyData(start_date, end_date):
     def appendDailyData():
         updatedCitiesDfs = []
         for i in range(len(cities)):
-            city_history_dfs.append(pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl"))
+            city_history_dfs.append(
+                pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl")
+            )
 
         for i in range(len(cities)):
             updatedCitiesDfs.append(
@@ -377,7 +391,9 @@ def getDailyData(start_date, end_date):
         latest_data[i].to_pickle("./Data/prediction_merged_df_" + cities[i] + ".pkl")
 
     # Clean The Data
-    def cleanAllData(fileNamePrefix="./Data/merged_df_", outputFilePrefix="./Data/data_cleaned_"):
+    def cleanAllData(
+        fileNamePrefix="./Data/merged_df_", outputFilePrefix="./Data/data_cleaned_"
+    ):
         # Unpickle the DataFrames
         city_history_dfs = []
 
@@ -435,7 +451,9 @@ def getDailyData(start_date, end_date):
 
 
 def getPrediction(city, name_prefix="", offset=0):
-    model = tf.keras.models.load_model("./Data/" + name_prefix + "model_" + city + ".keras")
+    model = tf.keras.models.load_model(
+        "./Data/" + name_prefix + "model_" + city + ".keras"
+    )
     df = pd.read_pickle("./Data/prediction_data_cleaned_" + city + ".pkl")
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
@@ -470,13 +488,13 @@ def getPrediction(city, name_prefix="", offset=0):
     if offset != 0:
         old_data = df[-(time_steps + offset) : -offset]
     # old_data.fillna(old_data.mean(), inplace=True)
-    old_data.fillna(method='ffill', inplace=True)
+    old_data.fillna(method="ffill", inplace=True)
 
     last_days_data = np.array(old_data)
     # print(last_days_data)
     last_days_scaled = scaler.transform(last_days_data)
     last_days_scaled = np.expand_dims(last_days_scaled, axis=0)
-    predicted_tmax_scaled = model.predict(last_days_scaled, verbose = 0)
+    predicted_tmax_scaled = model.predict(last_days_scaled, verbose=0)
     dummy_array = np.zeros((1, len(features)))
     dummy_array[:, 1] = predicted_tmax_scaled
     inverse_transformed_array = scaler.inverse_transform(dummy_array)
@@ -487,11 +505,12 @@ def getPrediction(city, name_prefix="", offset=0):
 
 
 start_date = "2024-03-24"
-# end_date = "2024-03-28"
+end_date = "2024-04-01"
 today = datetime.now()
-  # Format the date
-today_filter = today.strftime('%Y-%m-%d')
-end_date = today_filter
+# Format the date
+today_filter = today.strftime("%Y-%m-%d")
+# end_date = today_filter
+
 
 # ==================================================================================
 # IMPORTANT: UNCOMMENT THIS TO ACTUALLY GET DAILY DATA
@@ -501,14 +520,17 @@ prediction_results = []
 offset = 0
 
 for offset in range(1):
-  for city in cities:
-      from datetime import timedelta
-      print(f"----------- {city} -----------")
-      print(f"=========== {today_filter} ===========")
-      pred_date = pd.to_datetime(end_date, format = "%Y-%m-%d") + timedelta(days=1)
-    #   pred_date = end_date
-      pred = getPrediction(city)
-      prediction_results.append({"date": str(pred_date)[:10], "city": city, "tmax_predicted": pred})
+    for city in cities:
+        from datetime import timedelta
+
+        print(f"----------- {city} -----------")
+        print(f"=========== {today_filter} ===========")
+        pred_date = pd.to_datetime(end_date, format="%Y-%m-%d") + timedelta(days=1)
+        #   pred_date = end_date
+        pred = getPrediction(city)
+        prediction_results.append(
+            {"date": str(pred_date)[:10], "city": city, "tmax_predicted": pred}
+        )
 df_predictions = pd.DataFrame(prediction_results)
-df_predictions.to_csv("predictions_final.csv", mode='a', header=False)
+df_predictions.to_csv("predictions_final.csv", mode="a", header=False)
 pprint.pp(prediction_results)
