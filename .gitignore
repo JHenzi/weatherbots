@@ -1,2 +1,6 @@
 .env
 *.pdf
+gooony.txt
+*.pem
+*.key
+*.p8

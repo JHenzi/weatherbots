@@ -1,271 +1,222 @@
-# CS542 Common Task Report
-
-**Submitted By:**
-
-| Name | Pranav Goyanka |
-| --- | --- |
-| Email ID | pgoyanka@bu.edu |
-| BU ID | U18853014 |
-
-# Forecasting daily climate events
-
-**Table of Contents**
-
-# Introduction
-
-For the common task for this class, we were asked to build a model to predict daily maximum temperatures for the following 4 locations:
-
-1. (Belvedere Castle) Central Park, New York
-
-2. Midway International Airport, Chicago, Illinois
-
-3. Bergstrom International Airport, Austin, Texas
-
-4. Miami, Florida
-
-# Data Sources Used
-
-A variety of data sources were used to train the model and make daily predictions. Fetching data from these sources was performed via API calls.
-
-| Source | Features Used |
-| --- | --- |
-| https://open-meteo.com/ | Maximum Temperature, Precipitation |
-| https://www.visualcrossing.com/ | Maximum Temperature, Humidity |
-| https://meteostat.net/en/ | Maximum Temperature, Minimum Temperature |
-| https://www.ncei.noaa.gov/ | Maximum Temperature, Minimum Temperature |
-
-# Logs of Daily Trades
-
-These can also be found in `Kalshi-Recent-Activity-Pranav.csv` and `kalshi-screenshot.pdf` .
-
-***Screenshots of all trades from Kalshi are also attached at the end of this document.***
-
-## Daily Trades and Balance
-
-### Bergstrom International Airport, Austin, Texas
-
-| Date | City | Total Trades | Total Profit |
-| --- | --- | --- | --- |
-| @April 1, 2024 | Austin | 1 | 0 |
-| @March 31, 2024 | Austin | 1 | 0 |
-| @March 30, 2024 | Austin | 1 | 0 |
-| @March 29, 2024 | Austin | 1 | 0 |
-| @March 28, 2024 | Austin | 1 | 10 |
-| @March 27, 2024 | Austin | 1 | 0 |
-| @March 23, 2024 | Austin | 1 | 0 |
-| @March 22, 2024 | Austin | 1 | 0 |
-| @March 20, 2024 | Austin | 1 | 0 |
-| @March 16, 2024 | Austin | 1 | 0 |
-| @March 15, 2024 | Austin | 1 | 110 |
-| @March 14, 2024 | Austin | 1 | 109 |
-| @March 7, 2024 | Austin | 1 | 10 |
-| @March 3, 2024 | Austin | 1 | 0 |
-| @March 2, 2024 | Austin | 1 | 0 |
-| @March 1, 2024 | Austin | 1 | 0 |
-| @February 29, 2024 | Austin | 1 | 0 |
-| @February 28, 2024 | Austin | 1 | 10 |
-
-### Midway International Airport, Chicago, Illinois
-
-| Date | City | Total Trades | Total Profit |
-| --- | --- | --- | --- |
-| @April 1, 2024 | Chicago | 1 | 0 |
-| @March 31, 2024 | Chicago | 1 | 0 |
-| @March 30, 2024 | Chicago | 1 | 0 |
-| @March 29, 2024 | Chicago | 1 | 10 |
-| @March 28, 2024 | Chicago | 1 | 0 |
-| @March 27, 2024 | Chicago | 1 | 0 |
-| @March 23, 2024 | Chicago | 2 | 289 |
-| @March 22, 2024 | Chicago | 1 | 0 |
-| @March 20, 2024 | Chicago | 1 | 82 |
-| @March 16, 2024 | Chicago | 1 | 0 |
-| @March 15, 2024 | Chicago | 1 | 100 |
-| @March 14, 2024 | Chicago | 1 | 195 |
-| @March 7, 2024 | Chicago | 1 | 0 |
-| @March 3, 2024 | Chicago | 1 | 14 |
-| @March 2, 2024 | Chicago | 1 | 31 |
-| @March 1, 2024 | Chicago | 1 | 10 |
-| @February 29, 2024 | Chicago | 1 | 0 |
-| @February 28, 2024 | Chicago | 1 | 19 |
+## Weather-trader (operational)
 
-### Miami, Florida
+This repo predicts **daily maximum temperature** for 4 locations and maps the prediction into Kalshi “high temperature” markets for automated (or dry-run) trading.
 
-| Date | City | Total Trades | Total Profit |
-| --- | --- | --- | --- |
-| @April 1, 2024 | Miami | 1 | 0 |
-| @March 31, 2024 | Miami | 1 | 0 |
-| @March 30, 2024 | Miami | 1 | 0 |
-| @March 29, 2024 | Miami | 1 | 0 |
-| @March 28, 2024 | Miami | 1 | 0 |
-| @March 27, 2024 | Miami | 3 | 0 |
-| @March 23, 2024 | Miami | 1 | 66 |
-| @March 22, 2024 | Miami | 1 | 0 |
-| @March 20, 2024 | Miami | 1 | 194 |
-| @March 16, 2024 | Miami | 1 | 10 |
-| @March 15, 2024 | Miami | 1 | 132 |
-| @March 14, 2024 | Miami | 1 | 111 |
-| @March 8, 2024 | Miami | 1 | 1 |
-| @March 7, 2024 | Miami | 1 | 55 |
-| @March 3, 2024 | Miami | 1 | 5 |
-| @March 2, 2024 | Miami | 1 | 0 |
-| @March 1, 2024 | Miami | 1 | 10 |
-| @February 29, 2024 | Miami | 1 | 0 |
-| @February 28, 2024 | Miami | 1 | 0 |
+### Cities / coordinates
+- **NYC (Central Park / Belvedere Castle)**: `40.79736,-73.97785` (`ny`)
+- **Chicago (Midway Intl)**: `41.78701,-87.77166` (`il`)
+- **Austin (Bergstrom Intl)**: `30.14440,-97.66876` (`tx`)
+- **Miami**: `25.77380,-80.19360` (`fl`)
+
+---
 
-### (Belvedere Castle) Central Park, New York
+## Quick start
+
+### Install
 
-| Date | City | Total Trades | Total Profit |
-| --- | --- | --- | --- |
-| @April 1, 2024 | NYC | 1 | 0 |
-| @March 31, 2024 | NYC | 1 | 0 |
-| @March 30, 2024 | NYC | 1 | 0 |
-| @March 29, 2024 | NYC | 1 | 0 |
-| @March 28, 2024 | NYC | 1 | 0 |
-| @March 27, 2024 | NYC | 2 | 0 |
-| @March 23, 2024 | NYC | 1 | 0 |
-| @March 22, 2024 | NYC | 1 | 0 |
-| @March 20, 2024 | NYC | 1 | 1 |
-| @March 16, 2024 | NYC | 1 | 10 |
-| @March 15, 2024 | NYC | 1 | 88 |
-| @March 14, 2024 | NYC | 1 | 110 |
-| @March 7, 2024 | NYC | 1 | 55 |
-| @March 3, 2024 | NYC | 1 | 0 |
-| @March 2, 2024 | NYC | 1 | 35 |
-| @March 1, 2024 | NYC | 1 | 0 |
-| @February 29, 2024 | NYC | 1 | 5 |
-| @February 28, 2024 | NYC | 1 | 0 |
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+### Configure secrets
+- Copy `.env.example` → `.env`
+- Fill in:
+  - `VISUAL_CROSSING_API_KEY`
+  - `KALSHI_API_KEY_ID`
+  - `KALSHI_PRIVATE_KEY_PATH` (points to your RSA PEM file, e.g. `gooony.txt`)
+  - `KALSHI_ENV` (`demo` or `prod`)
+
+Security note: `.env` and private-key files are gitignored.
+
+---
+
+## Data flow (end-to-end)
+
+### 1) Historical + daily weather ingestion
+The ingestion logic lives in `daily_prediction.py` (and historically in `data_fetcher_new.ipynb`).
+
+**Sources**
+- **Open-Meteo** archive API: tmax/tmin, sunshine duration, precipitation hours, wind
+- **Visual Crossing** timeline API: tmax/tmin, humidity, wind (requires API key)
+- **Meteostat**: tmax/tmin (and other station fields)
+- **NOAA NCEI**: daily summaries (tmax/tmin + many station variables)
+
+**Stored artifacts (per city, in `Data/`)**
+- `merged_df_<city>.pkl`: historical merged dataframe (2016→…)
+- `prediction_merged_df_<city>.pkl`: historical + most recent ingested window (used for daily operation)
+- `prediction_data_cleaned_<city>.pkl`: cleaned/feature-engineered frame used by prediction
 
-**Based on the above data, it can be noted that a total profit for $1887 was made over the duration of the common task.**
+### 2) Cleaning + feature engineering
+Cleaning is performed inside `daily_prediction.py` during the daily run:
 
-## Balance
+- **Unit normalization**:
+  - Visual Crossing + NCEI are treated as already **°F**
+  - Open-Meteo + Meteostat are treated as **°C** and converted to °F via \(F = C \cdot \frac{9}{5} + 32\)
+- **Derived features**:
+  - `day` = day-of-year (1..365)
+  - `tmax_avg` = mean over available sources \(`tmax_vc`, `tmax_om`, `tmax_ms`, `tmax_ncei`\)
+  - `tmin_avg` = mean over available sources \(`tmin_vc`, `tmin_om`, `tmin_ms`, `tmin_ncei`\)
+- **Missing values**:
+  - forward-fill/back-fill is used for prediction-time continuity (`ffill()`/`bfill()`)
 
-The final portfolio value and balance after the end date of the common task was as shown.
+### 3) Prediction (three modes)
+`daily_prediction.py` supports:
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled.png)
+- **`--prediction-mode lstm`**: uses the trained LSTM model only.
+- **`--prediction-mode forecast`**: uses provider forecasts only.
+  - Open-Meteo forecast endpoint (no key) + Visual Crossing forecast (key) + Tomorrow.io forecast (key via `TOMORROW`) + WeatherAPI.com forecast (key via `WEATHERAPI`), averaged over available sources.
+- **`--prediction-mode blend`**: weighted mix of forecast and LSTM:
+  - `pred = w * forecast + (1 - w) * lstm` (default `w=0.8`, configurable via `--blend-forecast-weight`)
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%201.png)
+This is important operationally: the LSTM is an autoregressive model over recent observed days and can diverge from “online consensus”; `forecast`/`blend` are usually better aligned with what markets price.
 
-## Profit or Loss by Day
+### 4) Writing predictions
+Predictions are appended to a CSV (default: `predictions_final.csv`), with a header when the file is first created.
 
-![ProfitLossOverTime.png](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/ProfitLossOverTime.png)
+Current schema written by `daily_prediction.py`:
+- `date` (the **trade date** / event date)
+- `city` (`ny`, `il`, `tx`, `fl`)
+- `tmax_predicted` (the value used for trading)
+- `tmax_lstm` (nullable)
+- `tmax_forecast` (nullable)
+- `forecast_sources` (comma-separated list, e.g. `open-meteo,visual-crossing`)
+- `forecast_sources` (comma-separated list, e.g. `open-meteo,visual-crossing,tomorrow,weatherapi`)
 
-# Weekly status updates
+Recommended: use a fresh output per run/mode, e.g. `--predictions-csv Data/predictions_latest.csv`.
 
-## Week 1: **Manual prediction**
+### Provider rate limits (important)
+- **Tomorrow.io (free tier)**: 3 req/sec, 25 req/hour, 500 req/day.
+  - `daily_prediction.py` uses a **1-hour on-disk cache** (`Data/tomorrow_cache`) and a simple throttle to help stay within free-tier limits.
+  - Operationally: avoid repeatedly re-running forecast mode in a tight loop.
 
-Daily predictions of maximum temperature were performed manually, and AccuWeather was used as a reference point for the prediction. 
+### 5) Kalshi mapping + (dry-run) trading
+Trading logic is in `kalshi_trader.py`.
 
-Trades were then made to Kalshi manually, which can be seen in Daily Trade summary above.
+## Kalshi market mapping + resolution (confirmed)
 
-## Week 2: **Data collection and model training**
+This project targets “daily high temperature” markets whose settlement source is the **National Weather Service (NWS) climatological report** for a specific station.
 
-**Gathering the data**
+### Series tickers (demo + production)
+We currently default to the `KX*` series because they exist in the Kalshi demo environment. The non-`KX` variants exist as well, but demo availability can differ by ticker.
 
-- Data was collected via the four sources using API calls. Relevant code can be found in `data_fetcher_new.ipynb.`
-- Data ranging from `2016-01-01` to `2024-03-24`  was used to train the model.
-- The data from all sources was merged into a single DataFrame (per city - so 4 DataFrames total) and pickled and stored in the `Data` folder.
+| City | Code | Default series ticker | NWS station used for settlement | NWS “Daily Climate Report (CLI)” link |
+| --- | --- | --- | --- | --- |
+| New York City | `ny` | `KXHIGHNY` | **NYC (Central Park)** | `https://forecast.weather.gov/product.php?site=OKX&product=CLI&issuedby=NYC` |
+| Chicago | `il` | `KXHIGHCHI` | **MDW (Midway)** | `https://forecast.weather.gov/product.php?site=LOT&product=CLI&issuedby=MDW` |
+| Austin | `tx` | `KXHIGHAUS` | **AUS (Austin Bergstrom)** | `https://forecast.weather.gov/product.php?site=EWX&product=CLI&issuedby=AUS` |
+| Miami | `fl` | `KXHIGHMIA` | **MIA (Miami Intl)** | `https://forecast.weather.gov/product.php?site=MFL&product=CLI&issuedby=MIA` |
 
-**Cleaning the data and creating final feature set**
+You can override series tickers via env vars:
+- `KALSHI_SERIES_NY`, `KALSHI_SERIES_IL`, `KALSHI_SERIES_TX`, `KALSHI_SERIES_FL`
 
-- Some important steps that were performed were
-    - Making sure all temperatures are in the same unit (Fahrenheit)
-    - Create the following features from the available features `tmax_avg` , `tmin_avg` and `day` (day of the year 1-365)
-- Fill null values with `ffill` , which propagates the last valid observation to next valid.
-    - This is a better choice than something like mean, because it allows maintaining some similarity from the previous day’s data.
+### Contract certification / terms (resolution details)
+Kalshi publishes a product certification PDF (“contract_url”) and contract terms PDF (“contract_terms_url”) for each series. These documents define the **resolution procedure**, including:
+- which NWS report/station is authoritative,
+- when the report is considered final for settlement (revisions after expiration are not used),
+- how edge cases are handled when “yesterday” vs “today” wording appears in the CLI report.
 
-**Model Training**
+Examples (NYC):
+- Product certification: `https://kalshi-public-docs.s3.us-east-1.amazonaws.com/regulatory/product-certifications/NHIGH.pdf`
+- Contract terms: `https://kalshi-public-docs.s3.amazonaws.com/contract_terms/NHIGH.pdf`
 
-Weather data consists of many components that influence the data for a future date. This includes factors such as seasonality and the data for the last few days.
+**How contract selection works**
+- Build an **event ticker** by combining a “series ticker” and the date suffix `YYMONDD` (uppercased), e.g. `KXHIGHNY-26JAN23`.
+- Fetch the event via:
+  - `GET /trade-api/v2/events/{event_ticker}?with_nested_markets=true`
+- Each event has markets whose `subtitle` encodes the temperature bucket (e.g. `71° to 72°`, `40° or above`, `76° or below`).
+- `kalshi_trader.py` parses those subtitles and chooses the bucket that contains the predicted temperature.
 
-When looking at the seasonal factors, we primarily observe 3 **seasonal decomposition** factors:
+**Authentication**
+Kalshi Trade API v2 requests are signed with:
+- `KALSHI-ACCESS-KEY` (your key id)
+- `KALSHI-ACCESS-TIMESTAMP` (ms)
+- `KALSHI-ACCESS-SIGNATURE` = RSA-PSS signature of `timestamp + HTTP_METHOD + PATH_WITHOUT_QUERY`
 
-1. **Trend:** This shows the general direction the data is moving towards.
-2. **Seasonality:** This captures a patterns and it’s repeated-ness over a period of time.
-3. **Residual:** This captures a remainder of noise that leads to irregularities in the data.
+**Dry-run first**
+By default the trader does **not** place orders; it prints what it *would* submit. It will only place orders if you pass `--send-orders`.
 
-Here is the plot of the same for the four locations based on the dataset that was gathered:
+---
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%202.png)
+## Operational runbook
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%203.png)
+### Generate predictions (recommended: forecast or blend)
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%204.png)
+```bash
+source .venv/bin/activate
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%205.png)
+# Forecast consensus (Open-Meteo + Visual Crossing)
+python daily_prediction.py --trade-date 2026-01-23 --prediction-mode forecast --skip-fetch
 
-An LSTM Model was used to for predict the maximum temperature. LSTMs are particularly suited for this task because they can remember information for long periods, which is essential for capturing patterns in temperature changes over time. Additionally, their ability to handle sequential data makes them ideal for weather forecasting, where past conditions are often indicative of future weather.
+# Blend forecast with LSTM (useful when you want some historical smoothing)
+python daily_prediction.py --trade-date 2026-01-23 --prediction-mode blend --blend-forecast-weight 0.9 --skip-fetch
+```
 
-Here is a summary of the model that was built:
+### Refresh local historical pickles (for LSTM input continuity)
 
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%206.png)
+```bash
+python daily_prediction.py --trade-date 2026-01-23 --prediction-mode lstm
+```
 
-Four identical models were trained, one for each location. Each was trained on the dataset relating to just that city’s data. These are available in the following keras files:
+This fetches a recent observed window ending at `trade_date - 1` and regenerates `Data/prediction_data_cleaned_<city>.pkl`.
 
-- `model_fl.keras`
-- `model_il.keras`
-- `model_ny.keras`
-- `model_tx.keras`
+### Dry-run trade selection (no orders)
 
-The model was trained using a `timestep` of 10 days.
+```bash
+python kalshi_trader.py --env demo --trade-date 2026-01-23 --predictions-csv predictions_final.csv
+```
 
-The `Adam` Optimiser was using and the model was trained for `80 epochs`.
+### Place orders (demo first)
 
-## Week 3: **Automated prediction**
+```bash
+python kalshi_trader.py --env demo --trade-date 2026-01-23 --send-orders
+```
 
-In this week, the Kalshi Python API was utilised to develop an automated system that can make trades on the platform automatically based on the daily trades.
+---
 
-The relevant code for this can be found in `daily_prediction.py` and `kalshi_trader.py` , which is a python script downloads the data for the current day, and make a prediction based on the last 10 days’ data for the upcoming day.
+## LSTM model details (historical)
+Training is in `data_lstm.ipynb`:
+- Separate model per city (saved as `Data/model_<city>.keras`)
+- Input window: `time_steps = 10` days
+- Features used:
+  - `day_of_year`, `tmax`, `tmin`, `prec`, `humi`
+- Preprocessing:
+  - `StandardScaler` is fit on the full feature matrix, and inference uses the same feature set
+  - Model predicts the *scaled* `tmax`; a dummy feature vector is inverse-transformed to recover °F
 
-# Running the code
+---
 
-**Getting API Keys:**
+## Notes / legacy report
+This repo originated from a BU CS542 common-task project. Historical trade logs and report screenshots remain in the repo (e.g. `Kalshi-Recent-Activity-Pranav.csv` and images under `CS542 Common Task Report .../`).
 
-Visual Crossing requires you to have an API key. Once you have one setup using your account, open `.env` and update it’s value.
+---
 
-**Setting Up Kalshi Credentials:**
+## Optimization roadmap (accuracy → confidence → sizing)
 
-Please update the email id and password for your Kalshi account in `kalshi_trader.py` at lines 17 and 18.
+The goal is not just to “predict a temperature”, but to quantify **how much we trust** a forecast and translate that into **position sizing**.
 
-**Follow these steps to run the project:**
+### 1) Build a daily evaluation dataset
+For each city + trade date, store:
+- **Predictions**: `tmax_lstm`, `tmax_forecast` (per-provider), `tmax_blend`
+- **Market context** (optional but useful): market midprice / orderbook for the chosen bucket
+- **Resolved outcome**: settlement temperature (from Kalshi settlement fields or directly from the NWS CLI report used for settlement)
 
-1. Fetching all data and cleaning it
-    1. Run all of the cells in `data_fetcher_new.ipynb`
-2. Building and training the model
-    1. Run all of the cells in `data_lstm.ipynb` 
-3. For predicting daily data and making automated trades, run the following two commands
-    1. `python daily_predictions.py`
-    2. `python kalshi_trader.py`
+### 2) Scoring metrics (per city, season, horizon)
+- **Temperature error**: MAE / RMSE vs resolved temperature
+- **Bucket accuracy**: whether the chosen Kalshi interval contained the resolved temperature
+- **Probabilistic scoring (future)**: if we turn forecasts into bucket probabilities, use Brier score / log loss
 
-The trained model is present in the `Data` folder under the names: 
+### 3) Sizing / “when to trade”
+- Convert predicted temperature distribution → **bucket probabilities**
+  - simplest: assume normal distribution around forecast mean with sigma derived from provider disagreement + historical residuals
+- Combine with market prices to compute **expected value (EV)** per contract
+- Trade only when EV clears a threshold, and size by:
+  - capped Kelly fraction, or
+  - a simpler “confidence ladder” (bigger size when sigma is small and edge is large)
 
-- `model_fl.keras`
-- `model_il.keras`
-- `model_ny.keras`
-- `model_tx.keras`
-
-The current dataset, post data cleaning, has been pickled and is stored in the following files in the `Data` folder:
-
-- `prediction_data_cleaned_fl.pkl`
-- `prediction_data_cleaned_il.pkl`
-- `prediction_data_cleaned_ny.pkl`
-- `prediction_data_cleaned_tx.pkl`
-
-# Results
-
-The following predictions were observed using the model described above.
-
-As described earlier in the report, ****total profit for $1887 was made, 
-
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%207.png)
-
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%208.png)
-
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%209.png)
-
-![Untitled](CS542%20Common%20Task%20Report%20a6dd308f10b84adea1ea460a38d5040d/Untitled%2010.png)
-
-# References
-
-1. Keras Documentation [[https://keras.io/guides/](https://keras.io/guides/sequential_model/)]
-2. Predicting Temperature of Major Cities Using Machine Learning and Deep Learning [[https://arxiv.org/abs/2309.13330](https://arxiv.org/abs/2309.13330)]
-3. Time Series Forecasting using SARIMA ([https://medium.com/@ozdogar/time-series-forecasting-using-sarima-python-8db28f1d8cfc](https://medium.com/@ozdogar/time-series-forecasting-using-sarima-python-8db28f1d8cfc))
+### 4) RL-style allocation (later)
+Once we have enough logged episodes (features → action → PnL), we can consider:
+- contextual bandits for “which model/mode to trust today”
+- constrained RL for position sizing (risk limits, max loss, liquidity-aware execution)
