@@ -1,0 +1,12 @@
+python-dotenv
+requests
+requests-cache
+retry-requests
+openmeteo-requests
+meteostat
+pandas
+numpy
+scikit-learn
+tensorflow
+cryptography
+kalshi_python_sync
