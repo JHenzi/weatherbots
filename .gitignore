@@ -4,3 +4,4 @@ gooony.txt
 *.pem
 *.key
 *.p8
+.venv/
