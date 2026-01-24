@@ -66,6 +66,7 @@ To trigger a one-off run immediately (manual):
 ```bash
 docker exec weather-trader /bin/bash /app/scripts/run_trade.sh
 docker exec weather-trader /bin/bash /app/scripts/run_calibrate.sh
+docker exec weather-trader /bin/bash /app/scripts/run_settle.sh
 ```
 
 Or enable “run once on startup” by adding these to `docker-compose.yml` environment:
@@ -74,12 +75,16 @@ Or enable “run once on startup” by adding these to `docker-compose.yml` envi
 
 ### 4) Logs and outputs
 - Container logs: `docker logs -f weather-trader`
-- Cron logs (persisted): `Data/logs/trade.cron.log`, `Data/logs/calibrate.cron.log`
-- Settlement/metrics logs (persisted): `Data/logs/settle.cron.log`
+- Cron logs (persisted): `Data/logs/trade.cron.log`, `Data/logs/calibrate.cron.log`, `Data/logs/settle.cron.log`
 - Decisions/trades/eval CSVs: `Data/decisions_history.csv`, `Data/trades_history.csv`, `Data/eval_history.csv`
+- Learning + rollups:
+  - `Data/source_performance.csv` (per-source absolute errors when truth exists)
+  - `Data/weights.json` (current learned weights)
+  - `Data/weights_history.csv` (weight drift over time)
+  - `Data/daily_metrics.csv` (MAE/RMSE + bucket hit-rate + daily PnL)
 
 ### 5) Schedule / timezone
-Cron times are defined in `ops/docker/crontab` (defaults: 3:30pm trade, 2:15am calibrate).
+Cron times are defined in `ops/docker/crontab` (defaults: 3:30pm trade, 2:15am calibrate, 3:15am settle/metrics).
 If you want cron to run in your local timezone, set `TZ` in `docker-compose.yml` (e.g. `America/New_York`).
 
 ---
@@ -128,16 +133,19 @@ Cleaning is performed inside `daily_prediction.py` during the daily run:
 This is important operationally: the LSTM is an autoregressive model over recent observed days and can diverge from “online consensus”; `forecast`/`blend` are usually better aligned with what markets price.
 
 ### 4) Writing predictions
-Predictions are appended to a CSV (default: `predictions_final.csv`), with a header when the file is first created.
+The trading entrypoint is `run_daily.py`, which writes:
+- `Data/predictions_latest.csv` (canonical “what we traded on” for that run; overwritten each run)
+- `Data/predictions_history.csv` (append-only history)
 
-Current schema written by `daily_prediction.py`:
+Current per-city schema includes:
 - `date` (the **trade date** / event date)
 - `city` (`ny`, `il`, `tx`, `fl`)
-- `tmax_predicted` (the value used for trading)
-- `tmax_lstm` (nullable)
-- `tmax_forecast` (nullable)
-- `forecast_sources` (comma-separated list, e.g. `open-meteo,visual-crossing`)
-- `forecast_sources` (comma-separated list, e.g. `open-meteo,visual-crossing,tomorrow,weatherapi`)
+- Per-source forecasts (nullable): `tmax_open_meteo`, `tmax_visual_crossing`, `tmax_tomorrow`, `tmax_weatherapi`, `tmax_openweathermap`, `tmax_pirateweather`, `tmax_weather_gov`, `tmax_lstm`
+- Voting/consensus outputs:
+  - `tmax_predicted` (the value used for trading)
+  - `sources_used` (comma-separated)
+  - `weights_used` (comma-separated `source:weight`)
+  - `spread_f`, `confidence_score`
 
 Recommended: use a fresh output per run/mode, e.g. `--predictions-csv Data/predictions_latest.csv`.
 
@@ -152,6 +160,44 @@ Recommended: use a fresh output per run/mode, e.g. `--predictions-csv Data/predi
 
 ### 5) Kalshi mapping + (dry-run) trading
 Trading logic is in `kalshi_trader.py`.
+
+### Budgeting + allocation (important)
+Each trade run enforces **two layers of safety**:
+
+- **Configured cap**: `WT_DAILY_BUDGET` (passed as `--max-dollars-total`) is the *absolute* max the bot is allowed to spend in a day.
+- **Balance-based cap (hard rule)**: before sizing orders, the bot calls `GET /trade-api/v2/portfolio/balance` and applies:
+  - **per-run spend cap = min(configured_cap, 0.5 × available_cash)** by default
+  - this ensures we **never risk more than half the current balance** even if `WT_DAILY_BUDGET` is higher.
+  - note: if balance fetch is unavailable (commonly in demo), it falls back to the configured cap
+
+Then, the per-run budget is **allocated across cities** based on:
+- **today’s confidence** (`confidence_score` from spread/guardrails), and
+- **historical feedback** from `Data/daily_metrics.csv` (rolling window; default 14 days), using:
+  - consensus MAE (`source_name=consensus`) and
+  - bucket hit-rate (`metric_type=bucket_hit_rate`)
+
+This results in a per-city budget cap that prefers the **most reliable cities** over time (with a small minimum allocation per city so cities aren’t accidentally starved).
+
+If you want to keep it simple and split evenly across cities, run `kalshi_trader.py` with:
+- `--allocation-mode equal`
+
+### Order sizing (contracts)
+By default, orders are **auto-sized** to spend up to the **city’s allocated budget** (and the overall per-run cap), bounded by:
+- `--max-contracts-per-order` (default in Docker wrapper: `WT_MAX_CONTRACTS_PER_ORDER=500`)
+- the orderbook liquidity at the ask (`ask_qty`)
+
+If you want fixed sizing instead, pass `--count N` (where `N>0`) to `kalshi_trader.py`.
+
+### Probability “width” (sigma) is now city-aware
+For each city, the trader now sets:
+
+- `sigma = max(current_spread, historical_MAE)`
+
+Where:
+- `current_spread` is the forecast disagreement (`spread_f`) for that city/day
+- `historical_MAE` comes from `Data/city_metadata.json` (updated nightly by `update_city_metadata.py`)
+
+This lets predictable cities trade with tighter distributions while volatile cities stay wider.
 
 ## Kalshi market mapping + resolution (confirmed)
 
@@ -200,11 +246,12 @@ By default the trader does **not** place orders; it prints what it *would* submi
 
 ## Operational runbook
 
-### Autonomous operation (macOS, recommended)
+### Autonomous operation (Docker, recommended)
 
-Goal: you do a **one-time setup**, then the system runs on its own:
-- **Daily trade job**: runs `run_daily.py` for *tomorrow’s* markets with a **$50 total cap** (default), and logs what it did.
-- **Nightly calibration job**: runs `calibrate_sources.py` for *yesterday* to update weights when NWS CLI truth is available.
+Goal: you do a **one-time setup**, then the container runs on its own:
+- **Daily trade job**: runs `run_daily.py` for *tomorrow’s* markets with a **$50 total cap** (default), and logs decisions/trades/eval.
+- **Nightly calibration job**: runs `calibrate_sources.py` for *yesterday* to update per-source error logs + learned weights when NWS CLI truth is available.
+- **Nightly settlement/metrics job**: runs `settle_eval.py` + `daily_metrics.py` for *yesterday* to backfill realized outcomes and roll up MAE/RMSE + hit-rate + PnL.
 
 #### One-time setup
 
@@ -222,45 +269,43 @@ pip install -U pip
 pip install -r requirements.txt
 ```
 
-3) Install the LaunchAgents (runs automatically thereafter):
+3) Start the Docker scheduler (runs automatically thereafter):
 
 ```bash
-mkdir -p ~/Library/LaunchAgents
-cp ops/launchd/com.weathertrader.*.plist ~/Library/LaunchAgents/
-
-# (Re)load
-launchctl unload -w ~/Library/LaunchAgents/com.weathertrader.trade.plist 2>/dev/null || true
-launchctl unload -w ~/Library/LaunchAgents/com.weathertrader.calibrate.plist 2>/dev/null || true
-launchctl load -w ~/Library/LaunchAgents/com.weathertrader.trade.plist
-launchctl load -w ~/Library/LaunchAgents/com.weathertrader.calibrate.plist
+docker compose up -d --build
 ```
 
 #### Controlling budget and live trading
 
-The LaunchAgents call wrapper scripts in `scripts/` that support environment variables:
+The scheduler wrapper scripts in `scripts/` support environment variables:
 - **`WT_DAILY_BUDGET`**: total daily budget in dollars (default `50`)
 - **`WT_ENV`**: `demo` or `prod` (default `demo`)
 - **`WT_SEND_ORDERS`**: `true` to actually place orders (default: **dry-run**)
 
-To enable live trading, edit `~/Library/LaunchAgents/com.weathertrader.trade.plist` and set:
+#### Idempotency (one live trade per city per date)
+When live trading is enabled (`WT_SEND_ORDERS=true` / `--send-orders`), `kalshi_trader.py` enforces **one live trade per city per trade date** by checking `Data/trades_history.csv` for an existing row with `send_orders=true` for that `(env, trade_date, city)`. If found, it logs a skip with reason `already_traded` and does not submit another order.
+
+To enable live trading, set in `docker-compose.yml`:
 - `WT_ENV=prod`
 - `WT_SEND_ORDERS=true`
 - (optional) `WT_DAILY_BUDGET=50`
 
-Then reload the trade agent:
-
-```bash
-launchctl unload -w ~/Library/LaunchAgents/com.weathertrader.trade.plist
-launchctl load -w ~/Library/LaunchAgents/com.weathertrader.trade.plist
-```
+Then restart the container: `docker compose up -d`
 
 #### Where to look for logs
-- `Data/logs/trade.out.log` and `Data/logs/trade.err.log`
-- `Data/logs/calibrate.out.log` and `Data/logs/calibrate.err.log`
+- `Data/logs/trade.cron.log`
+- `Data/logs/calibrate.cron.log`
+- `Data/logs/settle.cron.log`
 - Decisions/trades/eval CSVs in `Data/`:
   - `Data/decisions_history.csv`
   - `Data/trades_history.csv`
   - `Data/eval_history.csv`
+  - `Data/daily_metrics.csv`
+  - `Data/source_performance.csv`
+  - `Data/weights.json` / `Data/weights_history.csv`
+
+### Autonomous operation (macOS, legacy / optional)
+If you prefer `launchd` on macOS, see the old LaunchAgents under `ops/launchd/`. Docker is the recommended path on macOS due to more predictable scheduling and fewer permission surprises.
 
 ### Generate predictions (recommended: forecast or blend)
 
@@ -285,7 +330,7 @@ This fetches a recent observed window ending at `trade_date - 1` and regenerates
 ### Dry-run trade selection (no orders)
 
 ```bash
-python kalshi_trader.py --env demo --trade-date 2026-01-23 --predictions-csv predictions_final.csv
+python kalshi_trader.py --env demo --trade-date 2026-01-23 --predictions-csv Data/predictions_latest.csv
 ```
 
 This performs **orderbook/quote-aware trade selection** per city:
@@ -301,7 +346,7 @@ Key knobs (conservative defaults):
 - `--max-yes-spread-cents` (default 6)
 - `--max-dollars-per-city` (default 50)
 - `--max-dollars-total` (default 150)
-- `--max-contracts-per-order` (default 25)
+- `--max-contracts-per-order` (default 500)
 - `--sigma-floor` (default 2.0) and `--sigma-mult` (default 1.0)
 
 ### Place orders (demo first)
@@ -313,8 +358,8 @@ python kalshi_trader.py --env demo --trade-date 2026-01-23 --send-orders
 ---
 
 ## LSTM model details (historical)
-Training is in `data_lstm.ipynb`:
-- Separate model per city (saved as `Data/model_<city>.keras`)
+Training is in `train_models.py` (and historically `data_lstm.ipynb`):
+- Separate model per city (saved as `Data/model_<city>.keras` and versioned under `Data/models/<YYYYMMDD>/`)
 - Input window: `time_steps = 10` days
 - Features used:
   - `day_of_year`, `tmax`, `tmin`, `prec`, `humi`
@@ -344,6 +389,8 @@ For each city + trade date, store:
   - runs predictions, voting consensus, guardrails, orderbook-aware trade selection, and (optionally) submits orders.
 - **Nightly (best-effort calibration)**: `python calibrate_sources.py --trade-date YYYY-MM-DD --window-days 14`
   - writes `Data/source_performance.csv` and updates `Data/weights.json` when NWS CLI truth is available.
+- **Nightly (settlement + metrics)**: `python settle_eval.py --trade-date YYYY-MM-DD` and `python daily_metrics.py --as-of-date YYYY-MM-DD`
+  - backfills settlement + realized PnL into `Data/eval_history.csv` and appends rollups to `Data/daily_metrics.csv`.
 
 ### 2) Scoring metrics (per city, season, horizon)
 - **Temperature error**: MAE / RMSE vs resolved temperature

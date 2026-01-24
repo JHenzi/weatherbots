@@ -3,7 +3,7 @@ requests
 requests-cache
 retry-requests
 openmeteo-requests
-meteostat
+meteostat==1.7.6
 pandas
 numpy
 scikit-learn

@@ -7,6 +7,7 @@ from collections import defaultdict
 
 
 SOURCES = [
+    ("consensus", "mu_tmax_f"),
     ("open-meteo", "tmax_open_meteo"),
     ("visual-crossing", "tmax_visual_crossing"),
     ("tomorrow", "tmax_tomorrow"),

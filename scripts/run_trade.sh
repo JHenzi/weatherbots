@@ -14,6 +14,7 @@ fi
 WT_DAILY_BUDGET="${WT_DAILY_BUDGET:-50}"
 WT_ENV="${WT_ENV:-demo}"
 WT_SEND_ORDERS="${WT_SEND_ORDERS:-false}"
+WT_MAX_CONTRACTS_PER_ORDER="${WT_MAX_CONTRACTS_PER_ORDER:-500}"
 
 TRADE_DATE="$(python - <<'PY'
 import datetime as dt
@@ -36,7 +37,7 @@ ARGS=(
   --sigma-mult 1.0
   --max-dollars-total "$WT_DAILY_BUDGET"
   --max-dollars-per-city "$WT_DAILY_BUDGET"
-  --max-contracts-per-order 25
+  --max-contracts-per-order "$WT_MAX_CONTRACTS_PER_ORDER"
 )
 
 case "$(echo "$WT_SEND_ORDERS" | tr '[:upper:]' '[:lower:]')" in

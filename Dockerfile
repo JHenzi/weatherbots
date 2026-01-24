@@ -18,7 +18,7 @@ RUN pip install -U pip && pip install -r /app/requirements.txt
 COPY . /app
 
 # Cron config + entrypoint
-RUN chmod +x /app/scripts/run_trade.sh /app/scripts/run_calibrate.sh /app/scripts/run_settle.sh
+RUN chmod +x /app/scripts/run_trade.sh /app/scripts/run_calibrate.sh /app/scripts/run_settle.sh /app/scripts/run_hourly_pulse.sh
 RUN chmod +x /app/scripts/docker_entrypoint.sh
 
 ENTRYPOINT ["/app/scripts/docker_entrypoint.sh"]

@@ -20,4 +20,5 @@ PY
 
 python settle_eval.py --trade-date "$TRADE_DATE"
 python daily_metrics.py --as-of-date "$TRADE_DATE"
+python update_city_metadata.py --as-of-date "$TRADE_DATE"
 

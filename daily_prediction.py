@@ -150,7 +150,15 @@ def getDataFromVisualCrossing(latitude, longitude, startDate, endDate, fileName)
 # ### Meteostat
 
 def getDataFromMeteostat(latitude, longitude, startDate, endDate, fileName):
-    from meteostat import Daily, Stations
+    # Meteostat v1.x API (pinned in requirements.txt) exports Stations/Daily at top-level.
+    # If this import fails, the environment likely installed an incompatible meteostat version.
+    try:
+        from meteostat import Daily, Stations
+    except Exception as e:
+        raise ImportError(
+            "Meteostat import failed. Ensure requirements.txt is installed (meteostat==1.7.6). "
+            f"Original error: {e}"
+        )
 
     start = datetime.strptime(startDate, "%Y-%m-%d")
     end = datetime.strptime(endDate, "%Y-%m-%d")
@@ -227,18 +235,9 @@ def readStoredCSVData(fileName):
 
 
 def getDailyData(start_date, end_date):
-    # Unpickle the DataFrames
-    print(f"Getting daily data for end_date {end_date}\n")
-    city_history_dfs = []
-
-    for i in range(len(cities)):
-        city_history_dfs.append(
-            pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl")
-        )
-
-    print("Loaded DFs for " + str(len(city_history_dfs)) + " cities.\n")
-    # print(city_history_dfs[0].info())
-    print(city_history_dfs[0].tail())
+    # Fetch a *recent* observed window and maintain a rolling window for trading.
+    # Do NOT load or print multi-year historical frames during daily operation.
+    print(f"Refreshing observed inputs for {start_date} → {end_date}\n")
 
     # # Get daily data and append it to existing Data Frame
 
@@ -258,13 +257,9 @@ def getDailyData(start_date, end_date):
             )
         )
 
-        daily_ms_data = []
+    daily_ms_data = []
     for i in range(len(latitude)):
-        daily_ms_data.append(
-            getDataFromMeteostat(
-                latitude[i], longitude[i], start_date, end_date, cities[i]
-            )
-        )
+        daily_ms_data.append(getDataFromMeteostat(latitude[i], longitude[i], start_date, end_date, cities[i]))
 
     for i in range(len(stations_ncei)):
         getDataFromNCEI(stations_ncei[i], start_date, end_date, cities[i])
@@ -359,24 +354,30 @@ def getDailyData(start_date, end_date):
     # print(merged_dfs[0].info())
     # print(merged_dfs[0].tail())
 
-    daily_merged_dfs[0].tail()
-
-    city_history_dfs = []
+    # IMPORTANT: For daily operation we only need a *recent* contiguous window.
+    # Do NOT load the full historical `merged_df_*.pkl` (which can be years of data) during trading runs.
+    # Maintain a rolling window in `prediction_merged_df_*.pkl` instead.
 
     def appendDailyData():
-        updatedCitiesDfs = []
+        updated: list[pd.DataFrame] = []
         for i in range(len(cities)):
-            city_history_dfs.append(
-                pd.read_pickle("./Data/merged_df_" + cities[i] + ".pkl")
-            )
+            prev_path = "./Data/prediction_merged_df_" + cities[i] + ".pkl"
+            if os.path.exists(prev_path):
+                prev = pd.read_pickle(prev_path)
+                df = pd.concat([prev, daily_merged_dfs[i]], ignore_index=True)
+            else:
+                df = daily_merged_dfs[i].copy()
 
-        for i in range(len(cities)):
-            updatedCitiesDfs.append(
-                pd.concat([city_history_dfs[i], daily_merged_dfs[i]])
-            )
-            # print(updateCitiesDfs[i].tail())
-
-        return updatedCitiesDfs
+            # De-dupe by date and keep a modest rolling window.
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+                df = df.drop_duplicates(subset=["date"], keep="last")
+                df = df.sort_values("date")
+            # Keep last ~120 days to ensure continuity for LSTM time_steps and avoid huge history.
+            if "date" in df.columns and len(df) > 130:
+                df = df.iloc[-130:].copy()
+            updated.append(df)
+        return updated
 
     latest_data = appendDailyData()
     print("Daily data has been downloaded!")
@@ -396,8 +397,6 @@ def getDailyData(start_date, end_date):
             city_history_dfs.append(pd.read_pickle(fileNamePrefix + cities[i] + ".pkl"))
 
         print("Loaded DFs for " + str(len(city_history_dfs)) + " cities.\n")
-        # print(city_history_dfs[0].info())
-        # print(city_history_dfs[0].tail())
 
         for i in range(len(cities)):
             # Figure out what all cols to keep
@@ -410,21 +409,24 @@ def getDailyData(start_date, end_date):
             # precipitation from open meteo,
             # snow from meteo stats
             # sunny time from ncei
-            city_data = city_history_dfs[i][
-                [
-                    "date",
-                    "tmax_vc",
-                    "tmax_om",
-                    "tmax_ms",
-                    "tmax_ncei",
-                    "tmin_vc",
-                    "tmin_om",
-                    "humi_vc",
-                    "prec_om",
-                    "tmin_ms",
-                    "tmin_ncei",
-                ]
+            # Keep a stable set of expected columns, but tolerate missing sources in the rolling window.
+            expected = [
+                "date",
+                "tmax_vc",
+                "tmax_om",
+                "tmax_ms",
+                "tmax_ncei",
+                "tmin_vc",
+                "tmin_om",
+                "humi_vc",
+                "prec_om",
+                "tmin_ms",
+                "tmin_ncei",
             ]
+            for col in expected:
+                if col not in city_history_dfs[i].columns:
+                    city_history_dfs[i][col] = np.nan
+            city_data = city_history_dfs[i][expected]
             # NOTE: Some sources can be missing for recent days; we compute averages over available columns.
 
             def cleanAndPreprocessData(df):

@@ -235,7 +235,8 @@ def _parse_args():
     p.add_argument("--retrain-days-window", type=int, default=730, help="Training window (days)")
     p.add_argument("--val-days", type=int, default=30, help="Validation window (days)")
 
-    p.add_argument("--count", type=int, default=10)
+    # 0 means "auto-size to city budget" (see kalshi_trader.py).
+    p.add_argument("--count", type=int, default=0)
     p.add_argument("--side", type=str, default="yes", choices=["yes", "no"])
     # With orderbook-aware pricing, treat yes-price as a *ceiling* (default: permissive).
     p.add_argument("--yes-price", type=int, default=99)
