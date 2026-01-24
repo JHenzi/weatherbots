@@ -45,6 +45,64 @@ def _fmt_dt(ts: str) -> str:
     return s.replace("T", " ").replace("+00:00", "Z")
 
 
+def _parse_iso(ts: str) -> dt.datetime | None:
+    s = (ts or "").strip()
+    if not s:
+        return None
+    try:
+        # tolerate "Z" suffix
+        return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _hourly_trailing_stats(
+    rows: list[dict[str, str]],
+    *,
+    city: str,
+    trade_date: str,
+    window: int,
+) -> dict[str, Any] | None:
+    window = max(1, int(window))
+    pts: list[tuple[dt.datetime, float]] = []
+    for r in rows:
+        if (r.get("city") or "").strip() != city:
+            continue
+        if (r.get("trade_date") or "").strip() != trade_date:
+            continue
+        t = _parse_iso(r.get("timestamp", ""))
+        if t is None:
+            continue
+        v_s = (r.get("mean_forecast") or "").strip()
+        if not v_s:
+            continue
+        v = _safe_float(v_s, default=float("nan"))
+        if v != v:  # NaN
+            continue
+        pts.append((t, float(v)))
+    if not pts:
+        return None
+    pts.sort(key=lambda x: x[0])
+    pts = pts[-window:]
+    xs = [v for _, v in pts]
+    n = len(xs)
+    avg = sum(xs) / n if n else None
+    jitter = 0.0
+    drift = None
+    if n >= 2:
+        m = avg or 0.0
+        jitter = (sum((x - m) ** 2 for x in xs) / n) ** 0.5
+        drift = xs[-1] - xs[0]
+    return {
+        "n": n,
+        "avg": avg,
+        "last": xs[-1],
+        "jitter": jitter if n >= 2 else None,
+        "drift": drift,
+        "last_ts": pts[-1][0].isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+
+
 @dataclass(frozen=True)
 class Schedule:
     trade_min: int
@@ -164,11 +222,13 @@ def _render(env: str, limit: int) -> dict[str, Any]:
     trades_path = "Data/trades_history.csv"
     decisions_path = "Data/decisions_history.csv"
     eval_path = "Data/eval_history.csv"
+    hourly_path = "Data/hourly_forecasts.csv"
 
     preds = _read_csv(pred_path)
     trades = _read_csv(trades_path)
     decisions = _read_csv(decisions_path)
     evals = _read_csv(eval_path)
+    hourly = _read_csv(hourly_path)
 
     live_trades = [t for t in trades if (t.get("env") or "").strip() == env and _truthy(t.get("send_orders"))]
     live_trades.sort(key=lambda r: (r.get("run_ts") or ""))
@@ -219,6 +279,33 @@ def _render(env: str, limit: int) -> dict[str, Any]:
                 f"{_safe_float(p.get('tmax_predicted'), 0.0):.2f}" if p.get("tmax_predicted") else "",
                 f"{_safe_float(p.get('spread_f'), 0.0):.2f}" if p.get("spread_f") else "",
                 f"{_safe_float(p.get('confidence_score'), 0.0):.2f}" if p.get("confidence_score") else "",
+            ]
+        )
+
+    # Hourly trailing average of mean_forecast (Temporal Stability Engine)
+    trade_date = ""
+    if preds:
+        trade_date = (preds[0].get("date") or "").strip()
+    if not trade_date and hourly:
+        # fallback to most recent trade_date in hourly file
+        trade_date = max((r.get("trade_date") or "").strip() for r in hourly)
+
+    trailing_rows = []
+    trailing_window = 6
+    for city in ("ny", "il", "tx", "fl"):
+        st = _hourly_trailing_stats(hourly, city=city, trade_date=trade_date, window=trailing_window) if trade_date else None
+        if st is None:
+            trailing_rows.append([city, trade_date or "", "0", "", "", "", ""])
+            continue
+        trailing_rows.append(
+            [
+                city,
+                trade_date,
+                str(st["n"]),
+                f"{float(st['last']):.2f}",
+                f"{float(st['avg']):.2f}" if st.get("avg") is not None else "",
+                f"{float(st['jitter']):.2f}" if st.get("jitter") is not None else "",
+                f"{float(st['drift']):+.2f}" if st.get("drift") is not None else "",
             ]
         )
 
@@ -304,11 +391,13 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         "trades_history": count_rows(trades_path),
         "decisions_history": count_rows(decisions_path),
         "eval_history": count_rows(eval_path),
+        "hourly_forecasts": count_rows(hourly_path),
     }
 
     return {
         "files": files,
         "pred_table": pred_rows,
+        "trailing_table": trailing_rows,
         "trade_table": trade_rows,
         "open_table": open_rows,
         "decision_table": decision_rows,
@@ -353,7 +442,8 @@ def main():
                 f"preds={payload['files']['predictions_latest']}, "
                 f"trades={payload['files']['trades_history']}, "
                 f"decisions={payload['files']['decisions_history']}, "
-                f"eval={payload['files']['eval_history']}"
+                f"eval={payload['files']['eval_history']}, "
+                f"hourly={payload['files']['hourly_forecasts']}"
             )
             try:
                 if h > 1:
@@ -443,6 +533,26 @@ def main():
                 comp_rows.append([f(r, key) for _, key in chosen])
             comp_lines = _tabulate([h for h, _ in chosen], comp_rows, w)
             y = _draw_section(stdscr, y, title + ":", comp_lines, w)
+            if y >= h:
+                stdscr.refresh()
+                ch = stdscr.getch()
+                if ch in (ord("q"), ord("Q")):
+                    break
+                time.sleep(max(0.5, float(args.interval)))
+                continue
+
+            trailing_lines = _tabulate(
+                ["city", "trade_date", "n", "last(F)", "trail_avg(F)", "jitter(F)", "drift(F)"],
+                payload.get("trailing_table") or [],
+                w,
+            )
+            y = _draw_section(
+                stdscr,
+                y,
+                "Hourly forecast trailing average (last 6 samples):",
+                trailing_lines,
+                w,
+            )
             if y >= h:
                 stdscr.refresh()
                 ch = stdscr.getch()
