@@ -98,6 +98,8 @@ When `run_daily.py` runs, it should execute these steps in order:
     - [ ] then fractional Kelly (capped)
   - [x] Risk controls:
     - [x] per-city cap + daily total cap
+    - [x] **balance-based cap**: fetch Kalshi balance each run; never spend more than **50% of available cash**
+    - [x] **confidence-based allocation**: allocate per-run budget across cities using confidence + historical metrics
     - [x] “no trade” when missing data / count=0 after caps
 
 8) **Execute orders (or dry-run)**
@@ -151,4 +153,9 @@ When `run_daily.py` runs, it should execute these steps in order:
 ### Current status (high-signal)
 - [x] `daily_prediction.py` supports `trade_date` and `prediction-mode` (lstm/forecast/blend)
 - [x] `kalshi_trader.py` supports signed Kalshi API requests and dry-run by default
+- [x] Lookback/learning loop runs nightly in Docker:
+  - [x] per-source error log: `Data/source_performance.csv`
+  - [x] learned weights: `Data/weights.json` + drift history `Data/weights_history.csv`
+  - [x] settle + realized PnL backfill: `settle_eval.py` → `Data/eval_history.csv`
+  - [x] daily rollups: `daily_metrics.py` → `Data/daily_metrics.csv`
 - [ ] Missing: optional bucket sweep portfolio, fractional Kelly sizing, RL
