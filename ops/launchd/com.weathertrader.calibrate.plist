@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.weathertrader.calibrate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/joe/Local Development/weather-trader/scripts/run_calibrate.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>WT_WINDOW_DAYS</key>
+      <string>14</string>
+    </dict>
+
+    <!-- Run nightly at 2:15am local time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>2</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/joe/Local Development/weather-trader/Data/logs/calibrate.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/joe/Local Development/weather-trader/Data/logs/calibrate.err.log</string>
+  </dict>
+</plist>
+

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.weathertrader.trade</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/joe/Local Development/weather-trader/scripts/run_trade.sh</string>
+    </array>
+
+    <!-- Default: demo + dry-run. Edit these for live trading. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>WT_ENV</key>
+      <string>demo</string>
+      <key>WT_SEND_ORDERS</key>
+      <string>false</string>
+      <key>WT_DAILY_BUDGET</key>
+      <string>50</string>
+    </dict>
+
+    <!-- Run daily at 3:30pm local time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>15</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/joe/Local Development/weather-trader/Data/logs/trade.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/joe/Local Development/weather-trader/Data/logs/trade.err.log</string>
+  </dict>
+</plist>
+
