@@ -747,6 +747,81 @@ if __name__ == "__main__":
         v = day.get("maxtemp_f")
         return float(v) if v is not None else None
 
+    def forecast_tmax_google_weather(city: str) -> float | None:
+        """
+        Forecast tmax (°F) for trade_dt from Google Weather hourly forecast.
+
+        We fetch the next ~10 days of hourly temps, select the hours whose *local*
+        calendar date equals trade_dt (per Google's returned timeZone.id), and take
+        the max temperature across those hours.
+
+        Env var:
+          - GOOGLE (preferred, per your .env)
+          - GOOGLE_WEATHER_API_KEY (fallback)
+        """
+        import requests
+        import requests_cache
+        from zoneinfo import ZoneInfo
+
+        api_key = os.getenv("GOOGLE") or os.getenv("GOOGLE_WEATHER_API_KEY")
+        if not api_key:
+            return None
+
+        i = cities.index(city)
+        url = "https://weather.googleapis.com/v1/forecast/hours:lookup"
+        params = {
+            "key": api_key,
+            "location.latitude": latitude[i],
+            "location.longitude": longitude[i],
+            # Max allowed by API: 240 hours (10 days). We'll filter by date client-side.
+            "hours": 240,
+        }
+        session = requests_cache.CachedSession("Data/google_weather_cache", expire_after=3600)
+        r = session.get(url, params=params, timeout=30)
+        if r.status_code != 200:
+            return None
+        js = r.json() or {}
+
+        tz_id = ((js.get("timeZone") or {}) if isinstance(js.get("timeZone"), dict) else {}).get("id") or "UTC"
+        try:
+            tz = ZoneInfo(str(tz_id))
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        hours = js.get("forecastHours") or []
+        best = None
+        for h in hours:
+            interval = (h or {}).get("interval") or {}
+            st = interval.get("startTime") or interval.get("endTime")
+            if not st:
+                continue
+            try:
+                t = datetime.fromisoformat(str(st).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            try:
+                local_date = t.astimezone(tz).date()
+            except Exception:
+                local_date = t.date()
+            if local_date != trade_dt:
+                continue
+
+            temp = (h or {}).get("temperature") or {}
+            deg = temp.get("degrees")
+            unit = str(temp.get("unit") or "").upper()
+            if deg is None:
+                continue
+            try:
+                f = float(deg)
+            except Exception:
+                continue
+            if unit == "CELSIUS":
+                f = (f * 9.0 / 5.0) + 32.0
+            # If unit is already Fahrenheit or unknown, leave as-is.
+
+            best = f if best is None else max(best, f)
+        return best
+
     def forecast_tmax_openweathermap(city: str) -> float | None:
         """Forecast tmax (°F) for trade_dt from OpenWeatherMap 5-day/3-hour forecast API."""
         import requests
@@ -949,6 +1024,7 @@ if __name__ == "__main__":
         tmax_visual_crossing = None
         tmax_tomorrow = None
         tmax_weatherapi = None
+        tmax_google_weather = None
         tmax_openweathermap = None
         tmax_pirateweather = None
         tmax_weather_gov = None
@@ -960,6 +1036,7 @@ if __name__ == "__main__":
             tmax_visual_crossing = forecast_tmax_visual_crossing(city)
             tmax_tomorrow = forecast_tmax_tomorrow(city)
             tmax_weatherapi = forecast_tmax_weatherapi(city)
+            tmax_google_weather = forecast_tmax_google_weather(city)
             tmax_openweathermap = forecast_tmax_openweathermap(city)
             tmax_pirateweather = forecast_tmax_pirateweather(city)
             tmax_weather_gov = forecast_tmax_weather_gov(city)
@@ -976,6 +1053,9 @@ if __name__ == "__main__":
             if tmax_weatherapi is not None:
                 vals.append(tmax_weatherapi)
                 forecast_sources.append("weatherapi")
+            if tmax_google_weather is not None:
+                vals.append(tmax_google_weather)
+                forecast_sources.append("google-weather")
             if tmax_openweathermap is not None:
                 vals.append(tmax_openweathermap)
                 forecast_sources.append("openweathermap")
@@ -1017,6 +1097,7 @@ if __name__ == "__main__":
                 "tmax_visual_crossing": tmax_visual_crossing,
                 "tmax_tomorrow": tmax_tomorrow,
                 "tmax_weatherapi": tmax_weatherapi,
+                "tmax_google_weather": tmax_google_weather,
                 "tmax_openweathermap": tmax_openweathermap,
                 "tmax_pirateweather": tmax_pirateweather,
                 "tmax_weather_gov": tmax_weather_gov,

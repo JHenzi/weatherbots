@@ -1,7 +1,24 @@
 {
   "as_of": "2026-01-23",
-  "cities": {},
-  "source": "Data/daily_metrics.csv (missing)",
-  "updated_at": "2026-01-24T01:55:37.689722+00:00",
+  "cities": {
+    "fl": {
+      "historical_MAE": 2.57,
+      "n_days": 1
+    },
+    "il": {
+      "historical_MAE": 0.0375,
+      "n_days": 1
+    },
+    "ny": {
+      "historical_MAE": 2.15,
+      "n_days": 1
+    },
+    "tx": {
+      "historical_MAE": 0.4675,
+      "n_days": 1
+    }
+  },
+  "source": "Data/source_performance.csv (source_name=consensus, absolute_error)",
+  "updated_at": "2026-01-24T10:01:47.622816-05:00",
   "window_days": 30
 }

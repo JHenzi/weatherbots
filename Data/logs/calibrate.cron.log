@@ -1,0 +1,5 @@
+SKIP truth for city=ny date=2026-01-23: Could not find CLI report for ny date=2026-01-23 within 50 versions
+SKIP truth for city=tx date=2026-01-23: Could not find CLI report for tx date=2026-01-23 within 50 versions
+SKIP truth for city=fl date=2026-01-23: Could not find CLI report for fl date=2026-01-23 within 50 versions
+Wrote 1 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json

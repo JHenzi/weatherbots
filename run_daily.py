@@ -11,8 +11,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _utcnow_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+def _local_tz() -> dt.tzinfo:
+    tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tzname)
+    except Exception:
+        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
+def _now_iso() -> str:
+    # ISO with offset in local TZ, e.g. 2026-01-24T09:55:17-05:00
+    return dt.datetime.now(tz=_local_tz()).isoformat()
 
 
 def _run(cmd: list[str]) -> None:
@@ -86,6 +97,7 @@ def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.
         "visual-crossing": "tmax_visual_crossing",
         "tomorrow": "tmax_tomorrow",
         "weatherapi": "tmax_weatherapi",
+        "google-weather": "tmax_google_weather",
         "openweathermap": "tmax_openweathermap",
         "pirateweather": "tmax_pirateweather",
         "weather.gov": "tmax_weather_gov",
@@ -301,7 +313,7 @@ if __name__ == "__main__":
         src_csv=args.predictions_latest,
         dst_csv=args.predictions_history,
         extra_fields={
-            "run_ts": _utcnow_iso(),
+            "run_ts": _now_iso(),
             "env": args.env,
             "prediction_mode": args.prediction_mode,
             "blend_forecast_weight": str(args.blend_forecast_weight),

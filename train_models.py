@@ -22,6 +22,16 @@ TIME_STEPS = 10
 FEATURES = ["day_of_year", "tmax", "tmin", "prec", "humi"]
 
 
+def _local_tz() -> dt.tzinfo:
+    tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tzname)
+    except Exception:
+        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
 def _parse_args():
     p = argparse.ArgumentParser(description="Train per-city LSTM models on latest cleaned data.")
     p.add_argument(
@@ -183,7 +193,7 @@ def train_city(
             w.writeheader()
         w.writerow(
             {
-                "run_ts": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "run_ts": dt.datetime.now(tz=_local_tz()).isoformat(),
                 "as_of_date": as_of_date.strftime("%Y-%m-%d"),
                 "city": city,
                 "days_window": days_window,
@@ -213,7 +223,7 @@ if __name__ == "__main__":
         raise RuntimeError("TensorFlow is required for training. Install it in your .venv.")
 
     as_of = dt.datetime.strptime(args.as_of_date, "%Y-%m-%d").date() if args.as_of_date else None
-    run_ts = dt.datetime.now(dt.timezone.utc)
+    run_ts = dt.datetime.now(tz=_local_tz())
     run_dir = Path("Data/models") / run_ts.strftime("%Y%m%d")
     run_dir.mkdir(parents=True, exist_ok=True)
 

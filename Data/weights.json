@@ -1,0 +1,22 @@
+{
+  "fl": {
+    "as_of": "2026-01-23",
+    "weights": {},
+    "window_days": 14
+  },
+  "il": {
+    "as_of": "2026-01-23",
+    "weights": {},
+    "window_days": 14
+  },
+  "ny": {
+    "as_of": "2026-01-23",
+    "weights": {},
+    "window_days": 14
+  },
+  "tx": {
+    "as_of": "2026-01-23",
+    "weights": {},
+    "window_days": 14
+  }
+}

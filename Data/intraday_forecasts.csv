@@ -1,0 +1,9 @@
+timestamp,city,trade_date,mean_forecast,current_sigma,tmax_open_meteo,tmax_visual_crossing,tmax_tomorrow,tmax_weatherapi,sources_used,weights_used
+2026-01-24T10:23:12.010433-05:00,ny,2026-01-25,23.3825,3.0479,22.0000,25.1000,27.2300,19.2000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:13.035171-05:00,il,2026-01-25,18.3800,0.7051,18.0000,18.0000,17.9200,19.6000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:14.029941-05:00,tx,2026-01-25,29.1775,1.9533,29.9000,27.9000,26.9100,32.0000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:15.227168-05:00,fl,2026-01-25,76.1575,2.3607,76.5000,79.1000,76.5300,72.5000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:16.392757-05:00,ny,2026-01-25,23.3825,3.0479,22.0000,25.1000,27.2300,19.2000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:17.203528-05:00,il,2026-01-25,18.3800,0.7051,18.0000,18.0000,17.9200,19.6000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:18.055961-05:00,tx,2026-01-25,29.1775,1.9533,29.9000,27.9000,26.9100,32.0000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
+2026-01-24T10:23:18.957607-05:00,fl,2026-01-25,76.1575,2.3607,76.5000,79.1000,76.5300,72.5000,"open-meteo,visual-crossing,tomorrow,weatherapi","open-meteo:0.2500,tomorrow:0.2500,visual-crossing:0.2500,weatherapi:0.2500"
