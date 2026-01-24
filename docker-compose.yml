@@ -1,0 +1,38 @@
+services:
+  weather-trader:
+    build: .
+    container_name: weather-trader
+    restart: unless-stopped
+
+    # Persist logs, caches, models, and histories
+    volumes:
+      - ./Data:/app/Data
+      - ./.env:/app/.env:ro
+
+      # Mount your Kalshi private key PEM and point KALSHI_PRIVATE_KEY_PATH at it.
+      # Example (uncomment and set the correct local path):
+      - ./gooony.txt:/run/secrets/kalshi_key.pem:ro
+
+    environment:
+      # If you mount a key as above, set this path to the in-container path.
+      KALSHI_PRIVATE_KEY_PATH: /run/secrets/kalshi_key.pem
+
+      # Defaults: safe demo + dry-run. Change to prod + true for live trading.
+      WT_ENV: demo
+      WT_SEND_ORDERS: "false"
+      WT_DAILY_BUDGET: "50"
+      # Avoid with: docker exec weather-trader /bin/bash /app/scripts/run_calibrate.sh
+      # If you want to run the calibrate job once on startup, set this to "true".
+      #WT_RUN_CALIBRATE_ON_START: "true"
+
+      # Optional: calibration window (days)
+      WT_WINDOW_DAYS: "14"
+
+      # Container timezone (cron schedule uses this). Change as desired.
+      TZ: America/New_York
+
+    # If you want the container timezone to match you (recommended for cron times),
+    # set TZ (e.g. America/New_York). Otherwise cron runs in UTC.
+    #environment:
+    #  - TZ=America/New_York
+

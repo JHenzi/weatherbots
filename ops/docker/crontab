@@ -1,0 +1,16 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# NOTE:
+# - These jobs assume /app/.env exists (mount it) so python-dotenv can load secrets.
+# - Logs go to Data/logs/*.cron.log (mount ./Data for persistence).
+
+# Daily trade run for tomorrow's markets (default 3:30pm local container time)
+30 15 * * * cd /app && /bin/bash /app/scripts/run_trade.sh >> /app/Data/logs/trade.cron.log 2>&1
+
+# Nightly calibration for yesterday (default 2:15am local container time)
+15 2 * * * cd /app && /bin/bash /app/scripts/run_calibrate.sh >> /app/Data/logs/calibrate.cron.log 2>&1
+
+# Nightly settlement + metrics rollups for yesterday (default 3:15am local container time)
+15 3 * * * cd /app && /bin/bash /app/scripts/run_settle.sh >> /app/Data/logs/settle.cron.log 2>&1
+

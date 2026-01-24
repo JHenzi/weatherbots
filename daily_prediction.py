@@ -745,6 +745,188 @@ if __name__ == "__main__":
         v = day.get("maxtemp_f")
         return float(v) if v is not None else None
 
+    def forecast_tmax_openweathermap(city: str) -> float | None:
+        """Forecast tmax (°F) for trade_dt from OpenWeatherMap 5-day/3-hour forecast API."""
+        import requests
+        import requests_cache
+
+        if str(os.getenv("DISABLE_OPENWEATHERMAP", "")).strip().lower() in ("1", "true", "yes", "y"):
+            return None
+
+        api_key = os.getenv("OPENWEATHERMAP_API_KEY")
+        if not api_key:
+            return None
+
+        i = cities.index(city)
+        url = "https://api.openweathermap.org/data/2.5/forecast"
+        params = {
+            "lat": latitude[i],
+            "lon": longitude[i],
+            "appid": api_key,
+            "units": "imperial",
+        }
+
+        session = requests_cache.CachedSession("Data/openweathermap_cache", expire_after=3600)
+        r = session.get(url, params=params, timeout=30)
+        if r.status_code != 200:
+            # Avoid noisy per-city errors; print a compact hint once per run.
+            if not getattr(forecast_tmax_openweathermap, "_warned", False):
+                setattr(forecast_tmax_openweathermap, "_warned", True)
+                try:
+                    msg = (r.json() or {}).get("message")
+                except Exception:
+                    msg = None
+                print(
+                    f"WARNING: OpenWeatherMap forecast unavailable (status={r.status_code}"
+                    + (f", message={msg}" if msg else "")
+                    + ")."
+                )
+            return None
+        js = r.json()
+        tz_offset = int(((js.get("city") or {}).get("timezone")) or 0)  # seconds from UTC
+        items = js.get("list") or []
+        if not items:
+            return None
+
+        target = trade_dt
+        max_t = None
+        for it in items:
+            # dt is UTC seconds; shift to local day using the city's fixed offset
+            ts = it.get("dt")
+            if ts is None:
+                continue
+            try:
+                # Use UTC then apply offset explicitly (avoid relying on machine local timezone).
+                local_dt = (datetime.utcfromtimestamp(int(ts)) + timedelta(seconds=tz_offset)).date()
+            except Exception:
+                continue
+            if local_dt != target:
+                continue
+            main = it.get("main") or {}
+            # Use temp_max if present; otherwise temp.
+            v = main.get("temp_max", main.get("temp"))
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            if max_t is None or fv > max_t:
+                max_t = fv
+        return max_t
+
+    def forecast_tmax_pirateweather(city: str) -> float | None:
+        """Forecast tmax (°F) for trade_dt from Pirate Weather (Dark Sky compatible) daily forecast."""
+        import requests_cache
+        import requests
+        from zoneinfo import ZoneInfo
+
+        api_key = os.getenv("PIRATE_WEATHER_API_KEY") or os.getenv("PIRATE_WEATER_API_KEY")
+        if not api_key:
+            return None
+
+        i = cities.index(city)
+        url = f"https://api.pirateweather.net/forecast/{api_key}/{latitude[i]},{longitude[i]}"
+        params = {
+            "units": "us",
+            # Keep responses small (we only need daily)
+            "exclude": "currently,minutely,hourly,alerts",
+        }
+
+        session = requests_cache.CachedSession("Data/pirateweather_cache", expire_after=3600)
+        r = session.get(url, params=params, timeout=30)
+        if r.status_code != 200:
+            return None
+        js = r.json()
+
+        tz_name = js.get("timezone") or "UTC"
+        try:
+            tz = ZoneInfo(str(tz_name))
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        daily = (js.get("daily") or {}).get("data") or []
+        if not daily:
+            return None
+
+        for d in daily:
+            ts = d.get("time")
+            if ts is None:
+                continue
+            try:
+                dd = datetime.fromtimestamp(int(ts), tz=tz).date()
+            except Exception:
+                continue
+            if dd != trade_dt:
+                continue
+            # Prefer temperatureMax (midnight-midnight local); fall back to temperatureHigh.
+            v = d.get("temperatureMax", d.get("temperatureHigh"))
+            return float(v) if v is not None else None
+
+        return None
+
+    def forecast_tmax_weather_gov(city: str) -> float | None:
+        """Forecast tmax (°F) for trade_dt from NWS api.weather.gov (public)."""
+        import requests
+        import requests_cache
+
+        user_agent = os.getenv("NWS_USER_AGENT")
+        if not user_agent:
+            if not getattr(forecast_tmax_weather_gov, "_warned", False):
+                setattr(forecast_tmax_weather_gov, "_warned", True)
+                print("WARNING: NWS_USER_AGENT not set; skipping api.weather.gov forecasts.")
+            return None
+
+        i = cities.index(city)
+        points_url = f"https://api.weather.gov/points/{latitude[i]},{longitude[i]}"
+        session = requests_cache.CachedSession("Data/weather_gov_cache", expire_after=3600)
+        headers = {"User-Agent": user_agent, "Accept": "application/geo+json"}
+
+        r = session.get(points_url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return None
+        js = r.json()
+        props = js.get("properties") or {}
+        forecast_url = props.get("forecast")
+        if not forecast_url:
+            return None
+
+        r2 = session.get(str(forecast_url), headers=headers, timeout=30)
+        if r2.status_code != 200:
+            return None
+        js2 = r2.json()
+        periods = (js2.get("properties") or {}).get("periods") or []
+        if not periods:
+            return None
+
+        # Pick the daytime period for the local calendar date when available.
+        best = None
+        for p in periods:
+            st = p.get("startTime")
+            if not st:
+                continue
+            try:
+                dt_start = datetime.fromisoformat(str(st))
+            except Exception:
+                continue
+            if dt_start.date() != trade_dt:
+                continue
+            if p.get("isDaytime") is True:
+                v = p.get("temperature")
+                if v is None:
+                    continue
+                return float(v)
+            # fallback candidate: max temperature among any periods that start that date
+            v = p.get("temperature")
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            best = fv if best is None else max(best, fv)
+        return best
+
     prediction_results = []
     for city in cities:
         print(f"----------- {city} -----------")
@@ -760,26 +942,47 @@ if __name__ == "__main__":
             except Exception:
                 pred_lstm = None
 
+        # Per-source forecast values (VotingModel needs raw votes)
+        tmax_open_meteo = None
+        tmax_visual_crossing = None
+        tmax_tomorrow = None
+        tmax_weatherapi = None
+        tmax_openweathermap = None
+        tmax_pirateweather = None
+        tmax_weather_gov = None
+
         pred_forecast = None
         forecast_sources: list[str] = []
         if args.prediction_mode in ("forecast", "blend"):
-            om = forecast_tmax_open_meteo(city)
-            vc = forecast_tmax_visual_crossing(city)
-            tm = forecast_tmax_tomorrow(city)
-            wa = forecast_tmax_weatherapi(city)
+            tmax_open_meteo = forecast_tmax_open_meteo(city)
+            tmax_visual_crossing = forecast_tmax_visual_crossing(city)
+            tmax_tomorrow = forecast_tmax_tomorrow(city)
+            tmax_weatherapi = forecast_tmax_weatherapi(city)
+            tmax_openweathermap = forecast_tmax_openweathermap(city)
+            tmax_pirateweather = forecast_tmax_pirateweather(city)
+            tmax_weather_gov = forecast_tmax_weather_gov(city)
             vals = []
-            if om is not None:
-                vals.append(om)
+            if tmax_open_meteo is not None:
+                vals.append(tmax_open_meteo)
                 forecast_sources.append("open-meteo")
-            if vc is not None:
-                vals.append(vc)
+            if tmax_visual_crossing is not None:
+                vals.append(tmax_visual_crossing)
                 forecast_sources.append("visual-crossing")
-            if tm is not None:
-                vals.append(tm)
+            if tmax_tomorrow is not None:
+                vals.append(tmax_tomorrow)
                 forecast_sources.append("tomorrow")
-            if wa is not None:
-                vals.append(wa)
+            if tmax_weatherapi is not None:
+                vals.append(tmax_weatherapi)
                 forecast_sources.append("weatherapi")
+            if tmax_openweathermap is not None:
+                vals.append(tmax_openweathermap)
+                forecast_sources.append("openweathermap")
+            if tmax_pirateweather is not None:
+                vals.append(tmax_pirateweather)
+                forecast_sources.append("pirateweather")
+            if tmax_weather_gov is not None:
+                vals.append(tmax_weather_gov)
+                forecast_sources.append("weather.gov")
             pred_forecast = float(np.mean(vals)) if vals else None
 
         if args.prediction_mode == "lstm":
@@ -807,6 +1010,14 @@ if __name__ == "__main__":
                 "tmax_lstm": (None if pred_lstm is None else float(pred_lstm)),
                 "tmax_forecast": (None if pred_forecast is None else float(pred_forecast)),
                 "forecast_sources": ",".join(forecast_sources),
+                # raw votes (used by VotingModel / weights)
+                "tmax_open_meteo": tmax_open_meteo,
+                "tmax_visual_crossing": tmax_visual_crossing,
+                "tmax_tomorrow": tmax_tomorrow,
+                "tmax_weatherapi": tmax_weatherapi,
+                "tmax_openweathermap": tmax_openweathermap,
+                "tmax_pirateweather": tmax_pirateweather,
+                "tmax_weather_gov": tmax_weather_gov,
             }
         )
 

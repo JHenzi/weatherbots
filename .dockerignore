@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+Data
+*.pkl
+*.pem
+*.key
+*.p8
+.env
