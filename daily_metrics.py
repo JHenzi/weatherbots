@@ -100,7 +100,14 @@ if __name__ == "__main__":
         if write_header:
             w.writeheader()
 
-        run_ts = dt.datetime.now(dt.timezone.utc).isoformat()
+        # Log in local timezone (TZ env, default ET) for human readability.
+        try:
+            from zoneinfo import ZoneInfo
+
+            tz = ZoneInfo((os.getenv("TZ") or "").strip() or "America/New_York")
+        except Exception:
+            tz = dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+        run_ts = dt.datetime.now(tz=tz).isoformat()
         for (d, city, src), errs in abs_errs.items():
             mae = sum(errs) / len(errs)
             rmse = math.sqrt(sum(sq_errs[(d, city, src)]) / len(sq_errs[(d, city, src)]))

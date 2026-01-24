@@ -90,7 +90,7 @@ trades_path = "Data/trades_history.csv"
 decisions_path = "Data/decisions_history.csv"
 eval_path = "Data/eval_history.csv"
 metrics_path = "Data/daily_metrics.csv"
-hourly_path = "Data/hourly_forecasts.csv"
+intraday_path = "Data/intraday_forecasts.csv"
 
 preds = _read_csv(pred_path)
 pred_hist = _read_csv(pred_hist_path)
@@ -113,7 +113,7 @@ print(f"weather-trader status  |  env={env}  |  now={now_local} {getattr(TZ,'key
 print()
 
 print("Data files (how many rows):")
-for p in [pred_path, pred_hist_path, trades_path, decisions_path, eval_path, metrics_path, hourly_path]:
+for p in [pred_path, pred_hist_path, trades_path, decisions_path, eval_path, metrics_path, intraday_path]:
     status = "missing"
     if os.path.exists(p):
         try:
@@ -218,12 +218,12 @@ else:
     _print_table([h for h, _ in cols], rows)
 print()
 
-print("Hourly forecast trailing average (last 6 samples):")
-if not os.path.exists(hourly_path):
-    print("  (missing Data/hourly_forecasts.csv)")
+print("Intraday forecast window (last 4 samples):")
+if not os.path.exists(intraday_path):
+    print("  (missing Data/intraday_forecasts.csv)")
 else:
-    hourly = _read_csv(hourly_path)
-    # Prefer the trade_date from predictions_latest; fallback to most recent trade_date in hourly file.
+    hourly = _read_csv(intraday_path)
+    # Prefer the trade_date from predictions_latest; fallback to most recent trade_date in intraday file.
     trade_date = ""
     if preds:
         trade_date = (preds[0].get("date") or "").strip()
@@ -259,24 +259,27 @@ else:
                 continue
             pts.append((ts, v))
         pts.sort(key=lambda x: x[0])
-        pts = pts[-6:]
+        pts = pts[-4:]
         xs = [v for _, v in pts]
         if not xs:
             rows.append([trade_date, city, 0, "", "", "", ""])
             continue
         avg = _mean(xs)
-        jitter = _std(xs) if len(xs) >= 2 else ""
         drift = (xs[-1] - xs[0]) if len(xs) >= 2 else ""
+        diffs = [xs[i+1] - xs[i] for i in range(len(xs)-1)] if len(xs) >= 2 else []
+        nondec = bool(diffs) and all(d >= 0 for d in diffs) and any(d > 0 for d in diffs)
+        noninc = bool(diffs) and all(d <= 0 for d in diffs) and any(d < 0 for d in diffs)
+        trend = "increasing" if nondec else ("decreasing" if noninc else "non_monotonic")
         rows.append([
             trade_date,
             city,
             len(xs),
             f"{xs[-1]:.2f}",
             f"{avg:.2f}" if avg is not None else "",
-            (f"{jitter:.2f}" if jitter != "" else ""),
+            trend,
             (f"{drift:+.2f}" if drift != "" else ""),
         ])
-    _print_table(["trade_date","city","n","last(F)","trail_avg(F)","jitter(F)","drift(F)"], rows)
+    _print_table(["trade_date","city","n","last(F)","trail_avg(F)","trend","drift(F)"], rows)
 print()
 
 print(f"Last {limit} placed bets (real orders):")

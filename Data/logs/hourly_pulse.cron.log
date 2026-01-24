@@ -4,3 +4,15 @@ hourly_pulse.py: error: the following arguments are required: --trade-date
 usage: hourly_pulse.py [-h] --trade-date TRADE_DATE [--out-csv OUT_CSV]
                        [--weights-json WEIGHTS_JSON]
 hourly_pulse.py: error: the following arguments are required: --trade-date
+[hourly_pulse] 2026-01-24T05:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T06:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T07:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T08:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T09:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T10:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T11:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T12:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T13:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T14:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse] 2026-01-24T15:05:01+00:00 trade_date=2026-01-25
+[hourly_pulse.py] done start=2026-01-24T10:05:02.018824-05:00 trade_date=2026-01-25 cities_written=4 out=Data/hourly_forecasts.csv

@@ -25,6 +25,7 @@ pip install -r requirements.txt
 - Copy `.env.example` → `.env`
 - Fill in:
   - `VISUAL_CROSSING_API_KEY`
+  - `GOOGLE` (Google Weather API key; optional)
   - `KALSHI_API_KEY_ID`
   - `KALSHI_PRIVATE_KEY_PATH` (points to your RSA PEM file, e.g. `gooony.txt`)
   - `KALSHI_ENV` (`demo` or `prod`)
@@ -258,7 +259,7 @@ Goal: you do a **one-time setup**, then the container runs on its own:
 1) Ensure `.env` has the required values:
 - **Kalshi (required)**: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`
 - **weather.gov forecasts (recommended)**: `NWS_USER_AGENT=weather-trader (contact: you@example.com)`
-- Optional: provider keys for forecasts (`TOMORROW`, `WEATHERAPI`, `PIRATE_WEATHER_API_KEY`, `VISUAL_CROSSING_API_KEY`)
+- Optional: provider keys for forecasts (`GOOGLE`, `TOMORROW`, `WEATHERAPI`, `PIRATE_WEATHER_API_KEY`, `VISUAL_CROSSING_API_KEY`)
 
 2) Install dependencies once:
 
