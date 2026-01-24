@@ -6,6 +6,8 @@ import os
 import csv
 import re
 import uuid
+import json
+import statistics
 
 import requests
 from cryptography.hazmat.backends import default_backend
@@ -119,6 +121,166 @@ def get_market(client: KalshiHttpClient, market_ticker: str) -> dict:
         raise RuntimeError(f"Failed to fetch market {market_ticker}: {resp.status_code} {resp.text}")
     payload = resp.json()
     return payload.get("market") or payload
+
+
+def _load_city_metadata_mae(path: str) -> dict[str, float]:
+    """
+    Load Data/city_metadata.json and return city->historical_MAE (degrees F).
+    Supported shapes:
+      - {"cities": {"il": {"historical_MAE": 2.1}, ...}}
+      - {"il": {"historical_MAE": 2.1}, ...}
+      - {"il": 2.1, ...}
+    """
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r") as f:
+            payload = json.load(f) or {}
+    except Exception:
+        return {}
+
+    cities = payload.get("cities") if isinstance(payload, dict) else None
+    if isinstance(cities, dict):
+        out: dict[str, float] = {}
+        for city, meta in cities.items():
+            if isinstance(meta, (int, float)):
+                out[str(city)] = float(meta)
+                continue
+            if not isinstance(meta, dict):
+                continue
+            for k in ("historical_MAE", "historical_MAE_f", "historical_mae", "historical_mae_f"):
+                if k in meta:
+                    try:
+                        out[str(city)] = float(meta[k])
+                    except Exception:
+                        pass
+                    break
+        return out
+
+    if isinstance(payload, dict):
+        out: dict[str, float] = {}
+        for city, meta in payload.items():
+            if city in ("as_of", "window_days", "updated_at", "source"):
+                continue
+            if isinstance(meta, (int, float)):
+                out[str(city)] = float(meta)
+                continue
+            if isinstance(meta, dict):
+                for k in ("historical_MAE", "historical_MAE_f", "historical_mae", "historical_mae_f"):
+                    if k in meta:
+                        try:
+                            out[str(city)] = float(meta[k])
+                        except Exception:
+                            pass
+                        break
+        return out
+
+    return {}
+
+
+def get_temporal_stability(
+    *,
+    city: str,
+    trade_date: str,
+    hourly_csv: str = "Data/hourly_forecasts.csv",
+    window: int = 6,
+) -> dict[str, float | int | None] | None:
+    """
+    Compute temporal stability (jitter) and drift from the hourly forecast history.
+
+    Jitter (temporal_stability): stddev of mean_forecast over the last N hourly samples.
+    Drift: last_mean - first_mean over the same window.
+    """
+    if not hourly_csv or not os.path.exists(hourly_csv):
+        return None
+    window = max(1, int(window))
+
+    samples: list[tuple[datetime.datetime, float]] = []
+    try:
+        with open(hourly_csv, "r", newline="") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                if not row:
+                    continue
+                if (row.get("city") or "").strip() != (city or "").strip():
+                    continue
+                if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
+                    continue
+                mf = row.get("mean_forecast")
+                mf_f = None if mf in (None, "") else float(mf)
+                if mf_f is None:
+                    continue
+                ts = (row.get("timestamp") or "").strip()
+                if not ts:
+                    continue
+                try:
+                    t = datetime.datetime.fromisoformat(ts)
+                except Exception:
+                    continue
+                if t.tzinfo is None:
+                    # Treat naive timestamps as UTC for safety.
+                    t = t.replace(tzinfo=datetime.timezone.utc)
+                samples.append((t, float(mf_f)))
+    except Exception:
+        return None
+
+    if not samples:
+        return None
+
+    samples.sort(key=lambda x: x[0])
+    samples = samples[-window:]
+    means = [m for _, m in samples]
+    n = len(means)
+    if n < 2:
+        return {"n": n, "temporal_stability": None, "drift": None, "first_mean": means[0], "last_mean": means[0]}
+
+    jitter = float(statistics.pstdev(means))
+    drift = float(means[-1] - means[0])
+    return {
+        "n": n,
+        "temporal_stability": jitter,
+        "drift": drift,
+        "first_mean": float(means[0]),
+        "last_mean": float(means[-1]),
+    }
+
+
+def get_balance(client: KalshiHttpClient) -> dict:
+    """
+    Fetch portfolio balance. Per Kalshi docs, values are returned in cents.
+
+    We try to extract an "available cash" number for sizing.
+    """
+    path = "/trade-api/v2/portfolio/balance"
+    resp = client.get(path)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to fetch balance: {resp.status_code} {resp.text}")
+    payload = resp.json() or {}
+
+    # Common shapes across SDKs/versions:
+    # - {"balance": {"available_cash": 12345, "portfolio_value": 23456, ...}}
+    # - {"balance": 12345, "portfolio_value": 23456, ...}
+    bal = payload.get("balance")
+    if isinstance(bal, dict):
+        return {
+            "available_cash_cents": bal.get("available_cash")
+            if bal.get("available_cash") is not None
+            else bal.get("availableCash"),
+            "portfolio_value_cents": bal.get("portfolio_value")
+            if bal.get("portfolio_value") is not None
+            else bal.get("portfolioValue"),
+            "raw": payload,
+        }
+    return {
+        "available_cash_cents": payload.get("available_cash")
+        if payload.get("available_cash") is not None
+        else payload.get("availableCash"),
+        "portfolio_value_cents": payload.get("portfolio_value")
+        if payload.get("portfolio_value") is not None
+        else payload.get("portfolioValue"),
+        "balance_cents": bal,
+        "raw": payload,
+    }
 
 
 def _best_yes_prices_from_orderbook(orderbook_payload: dict) -> dict[str, float | int | None]:
@@ -416,6 +578,112 @@ def _append_decision(path: str, row: dict) -> None:
         w.writerow({k: row.get(k, "") for k in fieldnames})
 
 
+def _already_traded(*, trades_log: str | None, env: str, trade_date: str, city: str) -> bool:
+    """
+    Idempotency guard: return True if we have already placed (or attempted) a live trade
+    for this env+trade_date+city.
+
+    We only treat rows with send_orders==True as "already traded" so dry-runs don't block live runs.
+    """
+    if not trades_log:
+        return False
+    if not os.path.exists(trades_log):
+        return False
+    try:
+        with open(trades_log, "r", newline="") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                if (row.get("env") or "").strip() != (env or "").strip():
+                    continue
+                if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
+                    continue
+                if (row.get("city") or "").strip() != (city or "").strip():
+                    continue
+                s = (row.get("send_orders") or "").strip().lower()
+                if s in ("1", "true", "yes", "y"):
+                    return True
+    except Exception:
+        # Best-effort: if we can't read it, don't block.
+        return False
+    return False
+
+
+def _load_allocation_scores(
+    *,
+    metrics_csv: str,
+    trade_dt: datetime.date,
+    window_days: int,
+) -> dict[str, float]:
+    """
+    Compute per-city allocation scores using historical feedback (best-effort).
+
+    We use `Data/daily_metrics.csv` rows produced by the nightly settle/metrics job:
+    - consensus MAE (metric_type=mae_f, source_name=consensus)
+    - bucket hit rate (metric_type=bucket_hit_rate, source_name=trade)
+
+    Score is higher when MAE is lower and hit-rate is higher.
+    """
+    if not metrics_csv or not os.path.exists(metrics_csv):
+        return {}
+
+    start = trade_dt - datetime.timedelta(days=int(window_days))
+    end = trade_dt - datetime.timedelta(days=1)
+
+    # Aggregate over the window.
+    mae_sum: dict[str, float] = {}
+    mae_n: dict[str, int] = {}
+    hit_sum: dict[str, float] = {}
+    hit_n: dict[str, int] = {}
+
+    with open(metrics_csv, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            d = (row.get("trade_date") or "").strip()
+            city = (row.get("city") or "").strip()
+            mtype = (row.get("metric_type") or "").strip()
+            src = (row.get("source_name") or "").strip()
+            v = (row.get("value") or "").strip()
+            if not d or not city or not mtype or not src or not v:
+                continue
+            try:
+                dd = datetime.datetime.strptime(d, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if dd < start or dd > end:
+                continue
+            try:
+                val = float(v)
+            except Exception:
+                continue
+
+            if mtype == "mae_f" and src == "consensus":
+                mae_sum[city] = mae_sum.get(city, 0.0) + val
+                mae_n[city] = mae_n.get(city, 0) + 1
+            if mtype == "bucket_hit_rate" and src == "trade":
+                hit_sum[city] = hit_sum.get(city, 0.0) + val
+                hit_n[city] = hit_n.get(city, 0) + 1
+
+    scores: dict[str, float] = {}
+    for city in CITY_ORDER:
+        # Default to neutral if we have no history yet.
+        mae = (mae_sum.get(city, 0.0) / mae_n[city]) if mae_n.get(city) else None
+        hit = (hit_sum.get(city, 0.0) / hit_n[city]) if hit_n.get(city) else None
+
+        # MAE term: smaller MAE => bigger score. Keep bounded and stable.
+        # Example: mae=1 => ~0.5; mae=3 => ~0.1.
+        mae_term = 1.0
+        if mae is not None and mae >= 0.0:
+            mae_term = 1.0 / (1.0 + float(mae) * float(mae))
+
+        # Hit term: 0..1. If missing, neutral 1.0.
+        hit_term = 1.0
+        if hit is not None:
+            hit_term = 0.5 + max(0.0, min(1.0, float(hit)))  # 0.5..1.5
+
+        scores[city] = float(mae_term) * float(hit_term)
+    return scores
+
+
 def make_trade(
     *,
     client: KalshiHttpClient,
@@ -433,13 +701,15 @@ def make_trade(
     trades_log: str | None,
     env: str,
 ):
-    # Check the interval for pred
-    interval = find_interval(pred, markets)
-    chosen = markets[interval]
+    # Caller may pass either the full event markets list (legacy) or a single chosen market.
+    # In the EV-based selection flow, we pass a list of length 1 containing the chosen market.
+    chosen = markets[0] if markets else None
+    if not chosen:
+        raise RuntimeError("make_trade called with empty markets list")
 
     subtitle = chosen.get("subtitle", "")
     ticker = chosen.get("ticker")
-    print(f"Pred={pred:.2f} → interval='{subtitle}' → market={ticker}")
+    print(f"Pred_mean={pred:.2f} → chosen_bucket='{subtitle}' → market={ticker}")
 
     # NOTE: trades_log is written only when a trade is allowed to proceed.
 
@@ -562,7 +832,12 @@ def _parse_args():
         action="store_true",
         help="Actually submit orders (default is dry-run)",
     )
-    p.add_argument("--count", type=int, default=10, help="Contracts per order")
+    p.add_argument(
+        "--count",
+        type=int,
+        default=0,
+        help="If >0, fixed contracts per order; if 0, auto-size up to city budget (default 0).",
+    )
     p.add_argument("--side", type=str, default="yes", choices=["yes", "no"])
     # For orderbook-aware selection, yes-price is treated as a ceiling for the implied ask.
     p.add_argument("--yes-price", type=int, default=99, help="Max acceptable YES ask in cents (1-99)")
@@ -579,19 +854,53 @@ def _parse_args():
         default=None,
         help="Append trade decisions (including skips) to this CSV.",
     )
-    p.add_argument("--min-confidence", type=float, default=0.0, help="Skip if confidence_score < this")
-    p.add_argument("--max-spread", type=float, default=999.0, help="Skip if spread_f > this")
+    # Safe defaults to match the VotingModel guardrails.
+    p.add_argument("--min-confidence", type=float, default=0.5, help="Skip if confidence_score < this")
+    p.add_argument("--max-spread", type=float, default=3.0, help="Skip if spread_f > this")
     p.add_argument("--eval-log", type=str, default=None, help="Append evaluation rows to this CSV.")
 
     p.add_argument("--orderbook-depth", type=int, default=25)
-    p.add_argument("--sigma-floor", type=float, default=2.0)
-    p.add_argument("--sigma-mult", type=float, default=1.0)
+    # sigma is now computed per city as max(current_spread, historical_MAE), with sigma_floor as fallback
+    p.add_argument("--sigma-floor", type=float, default=2.0, help="Fallback sigma when city metadata is unavailable")
+    p.add_argument("--sigma-mult", type=float, default=1.0, help="Legacy (ignored when city metadata is present)")
+    p.add_argument("--city-metadata-json", type=str, default="Data/city_metadata.json")
     p.add_argument("--min-ev-cents", type=float, default=3.0)
     p.add_argument("--max-yes-spread-cents", type=float, default=6.0)
     p.add_argument("--min-ask-depth", type=int, default=25)
     p.add_argument("--max-dollars-per-city", type=float, default=50.0)
     p.add_argument("--max-dollars-total", type=float, default=150.0)
-    p.add_argument("--max-contracts-per-order", type=int, default=25)
+    p.add_argument("--max-contracts-per-order", type=int, default=500)
+    p.add_argument(
+        "--max-balance-fraction",
+        type=float,
+        default=0.5,
+        help="Hard cap: never spend more than this fraction of available cash balance per run (default 0.5).",
+    )
+    p.add_argument(
+        "--daily-metrics-csv",
+        type=str,
+        default="Data/daily_metrics.csv",
+        help="Historical metrics used for per-city budget allocation.",
+    )
+    p.add_argument(
+        "--allocation-window-days",
+        type=int,
+        default=14,
+        help="Lookback window (days) for allocation scoring from daily_metrics.csv.",
+    )
+    p.add_argument(
+        "--allocation-mode",
+        type=str,
+        default="learned",
+        choices=["learned", "equal"],
+        help="How to split the per-run cap across cities. 'learned' uses confidence+history, 'equal' splits evenly.",
+    )
+    p.add_argument(
+        "--allocation-min-city-fraction",
+        type=float,
+        default=0.05,
+        help="Minimum fraction of per-run cap reserved per city (prevents zero budgets).",
+    )
     return p.parse_args()
 
 
@@ -632,6 +941,48 @@ if __name__ == "__main__":
         base_url=args.base_url,
     )
 
+    # Fetch balance once per run and enforce the "never bet more than half your balance" rule.
+    available_cash_dollars = None
+    try:
+        bal = get_balance(client)
+        cash_cents = bal.get("available_cash_cents")
+        if cash_cents is None:
+            # Fallback if payload uses a different field name.
+            cash_cents = bal.get("balance_cents")
+        if cash_cents is not None:
+            available_cash_dollars = float(cash_cents) / 100.0
+    except Exception as e:
+        print(f"WARNING: could not fetch Kalshi balance; using configured caps only ({e})")
+
+    configured_total_cap = float(args.max_dollars_total)
+    balance_cap = None
+    if available_cash_dollars is not None and float(args.max_balance_fraction) > 0:
+        balance_cap = max(0.0, float(args.max_balance_fraction) * float(available_cash_dollars))
+    effective_total_cap = configured_total_cap if balance_cap is None else min(configured_total_cap, balance_cap)
+    if available_cash_dollars is not None:
+        print(
+            f"Balance: available_cash=${available_cash_dollars:.2f} "
+            f"→ per-run cap=${effective_total_cap:.2f} (min(configured=${configured_total_cap:.2f}, "
+            f"{args.max_balance_fraction:.2f}*balance))"
+        )
+    else:
+        print(f"Per-run cap=${effective_total_cap:.2f} (configured; balance unavailable)")
+
+    # Load historical MAE per city (used for sigma).
+    city_mae = _load_city_metadata_mae(args.city_metadata_json)
+
+    # Allocate per-city budgets.
+    if str(args.allocation_mode).lower() == "equal":
+        city_scores: dict[str, float] = {c: 1.0 for c in CITY_ORDER}
+    else:
+        # learned: use historical feedback (daily_metrics.csv) + today's confidence
+        hist_scores = _load_allocation_scores(
+            metrics_csv=args.daily_metrics_csv,
+            trade_dt=trade_dt,
+            window_days=int(args.allocation_window_days),
+        )
+        city_scores = {c: float(hist_scores.get(c, 1.0)) for c in CITY_ORDER}
+
     preds: dict[tuple[str, str], dict] = {}
     with open(args.predictions_csv, "r", newline="") as f:
         reader = csv.DictReader(f)
@@ -653,11 +1004,120 @@ if __name__ == "__main__":
         raise RuntimeError("This build is configured for YES-only trade selection. Use --side yes.")
 
     spent_total_dollars = 0.0
+    spent_by_city: dict[str, float] = {c: 0.0 for c in CITY_ORDER}
+
+    # Blend in today's confidence_score into allocation weights.
+    for city in CITY_ORDER:
+        key = (trade_dt_str, city)
+        row = preds.get(key)
+        conf = None
+        if row is not None:
+            try:
+                conf = float(row.get("confidence_score")) if row.get("confidence_score") not in (None, "") else None
+            except Exception:
+                conf = None
+        # Missing/low confidence shouldn't zero the city's budget; it should just downweight it.
+        # Clamp to a floor so we still consider trades unless the guardrails explicitly skip them.
+        if conf is None:
+            conf_term = 1.0
+        else:
+            conf_term = max(0.0, min(1.0, float(conf)))
+        conf_term = max(0.25, float(conf_term))
+        city_scores[city] = float(city_scores.get(city, 1.0)) * float(conf_term)
+
+    s = sum(max(0.0, v) for v in city_scores.values())
+    if s <= 0:
+        city_budgets = {c: effective_total_cap / len(CITY_ORDER) for c in CITY_ORDER}
+    else:
+        city_budgets = {c: effective_total_cap * max(0.0, city_scores[c]) / s for c in CITY_ORDER}
+
+    # Ensure each city has a small non-zero cap (prevents accidental starvation due to missing confidence/metrics).
+    min_city = max(0.0, float(args.allocation_min_city_fraction) * float(effective_total_cap))
+    if min_city > 0:
+        # First, bump any city below the minimum.
+        bumped = {c: max(float(city_budgets.get(c, 0.0)), min_city) for c in CITY_ORDER}
+        total_bumped = sum(bumped.values())
+        if total_bumped <= effective_total_cap + 1e-9:
+            city_budgets = bumped
+        else:
+            # If minimums would exceed the cap, fall back to equal split.
+            city_budgets = {c: effective_total_cap / len(CITY_ORDER) for c in CITY_ORDER}
+    print(
+        "City budget caps: "
+        + ", ".join([f"{c}=${city_budgets.get(c, 0.0):.2f}" for c in CITY_ORDER])
+        + f" (window_days={int(args.allocation_window_days)})"
+    )
 
     for city in CITY_ORDER:
         series = SERIES_TICKERS[city]
         event_ticker = f"{series}-{event_suffix}"
         print(f"\n----------- {series} / city={city} / trade_date={trade_dt_str} -----------")
+
+        # Idempotency: one live trade per city per date.
+        if bool(args.send_orders) and _already_traded(
+            trades_log=args.trades_log,
+            env=args.env,
+            trade_date=trade_dt_str,
+            city=city,
+        ):
+            print("SKIP: already traded for this city/date (idempotency)")
+            if args.decisions_log:
+                _append_decision(
+                    args.decisions_log,
+                    {
+                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "pred_tmax_f": "",
+                        "spread_f": "",
+                        "confidence_score": "",
+                        "decision": "skip",
+                        "reason": "already_traded",
+                    },
+                )
+            if args.eval_log:
+                _append_eval_row(
+                    args.eval_log,
+                    {
+                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "decision": "skip",
+                        "reason": "already_traded",
+                        "mu_tmax_f": "",
+                        "sigma_f": "",
+                        "spread_f": "",
+                        "confidence_score": "",
+                        "tmax_open_meteo": "",
+                        "tmax_visual_crossing": "",
+                        "tmax_tomorrow": "",
+                        "tmax_weatherapi": "",
+                        "tmax_lstm": "",
+                        "sources_used": "",
+                        "weights_used": "",
+                        "chosen_market_ticker": "",
+                        "chosen_market_subtitle": "",
+                        "bucket_lo": "",
+                        "bucket_hi": "",
+                        "model_prob_yes": "",
+                        "yes_ask": "",
+                        "yes_bid": "",
+                        "yes_spread": "",
+                        "ask_qty": "",
+                        "market_prob_yes": "",
+                        "edge_prob": "",
+                        "ev_cents": "",
+                        "count": "",
+                        "send_orders": bool(args.send_orders),
+                    },
+                )
+            continue
 
         key = (trade_dt_str, city)
         if key not in preds:
@@ -720,12 +1180,67 @@ if __name__ == "__main__":
                 )
             continue
 
+        # Temporal Stability Engine gate: only trade when the forecast is stable (low jitter).
+        stability_window = 6
+        st = get_temporal_stability(city=city, trade_date=trade_dt_str, window=stability_window)
+        if st is None or st.get("n", 0) is None or int(st.get("n") or 0) < int(stability_window) or st.get("temporal_stability") is None:
+            n = 0 if st is None else int(st.get("n") or 0)
+            print(f"SKIP: insufficient hourly forecast history for stability check (n={n} < {stability_window})")
+            if args.decisions_log:
+                _append_decision(
+                    args.decisions_log,
+                    {
+                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "pred_tmax_f": f"{pred:.4f}",
+                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
+                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
+                        "decision": "skip",
+                        "reason": f"insufficient_hourly_forecasts;n={n};need={int(stability_window)}",
+                    },
+                )
+            continue
+
+        jitter = float(st.get("temporal_stability") or 0.0)
+        drift = float(st.get("drift") or 0.0)
+        threshold = float(city_mae.get(city, 1.5))
+        if jitter > threshold:
+            print(f"SKIP: high forecast jitter (jitter={jitter:.3f}F > threshold={threshold:.3f}F, drift={drift:+.3f}F)")
+            if args.decisions_log:
+                _append_decision(
+                    args.decisions_log,
+                    {
+                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "pred_tmax_f": f"{pred:.4f}",
+                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
+                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
+                        "decision": "skip",
+                        "reason": f"high_forecast_jitter;jitter={jitter:.4f};threshold={threshold:.4f};drift={drift:.4f};n={int(st.get('n') or 0)}",
+                    },
+                )
+            continue
+
         event_payload = get_event(client, event_ticker)
         markets = (event_payload.get("event") or {}).get("markets") or event_payload.get("markets") or []
         if not markets:
             raise RuntimeError(f"No markets returned for event {event_ticker}")
 
-        sigma = max(float(args.sigma_floor), float(args.sigma_mult) * float(spread_f or 0.0))
+        # New sigma: max(current_spread, historical_MAE). If metadata missing, fall back to sigma_floor.
+        cur_spread = float(spread_f or 0.0)
+        hist_mae = city_mae.get(city)
+        if hist_mae is None:
+            sigma = max(float(args.sigma_floor), float(args.sigma_mult) * cur_spread)
+        else:
+            sigma = max(cur_spread, float(hist_mae))
         best = None  # (ev_cents, market_dict, pricing_dict, prob, lo, hi, edge_prob, market_prob)
         best_any = None  # same tuple as best, but without EV/spread/ceiling filters
         for m in markets:
@@ -886,12 +1401,17 @@ if __name__ == "__main__":
         yes_bid = px.get("best_yes_bid")
         ask_qty = int(px.get("ask_qty") or 0)
 
-        remaining_total = max(0.0, float(args.max_dollars_total) - float(spent_total_dollars))
-        max_city = min(float(args.max_dollars_per_city), remaining_total)
+        remaining_total = max(0.0, float(effective_total_cap) - float(spent_total_dollars))
+        remaining_city_budget = max(0.0, float(city_budgets.get(city, 0.0)) - float(spent_by_city.get(city, 0.0)))
+        max_city = min(float(args.max_dollars_per_city), remaining_total, remaining_city_budget)
         cost_per_contract = yes_ask / 100.0
         count_cap_budget = int(max_city // cost_per_contract) if cost_per_contract > 0 else 0
 
-        count = min(int(args.count), int(args.max_contracts_per_order), ask_qty, count_cap_budget)
+        desired = int(args.count) if int(args.count) > 0 else 10**9
+        count = min(desired, int(args.max_contracts_per_order), ask_qty, count_cap_budget)
+        # Price impact cap: don't take more than 25% of the resting best-ask size.
+        max_take = max(1, int(math.floor(float(ask_qty) * 0.25)))
+        count = min(int(count), int(max_take))
         if count < 1:
             print("SKIP: budget/liquidity caps reduce count to 0")
             if args.decisions_log:
@@ -970,7 +1490,11 @@ if __name__ == "__main__":
                     "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
                     "confidence_score": "" if confidence is None else f"{confidence:.4f}",
                     "decision": "trade",
-                    "reason": (reason + ";" if reason else "") + f"ticker={ticker};ask={yes_ask};ev={ev_cents:.2f}",
+                    "reason": (
+                        (reason + ";" if reason else "")
+                        + f"stability_ok;jitter={jitter:.4f};threshold={threshold:.4f};drift={drift:.4f};n={int(st.get('n') or 0)};"
+                        + f"ticker={ticker};ask={yes_ask};ev={ev_cents:.2f}"
+                    ),
                 },
             )
         if args.eval_log:
@@ -1031,3 +1555,4 @@ if __name__ == "__main__":
         )
 
         spent_total_dollars += float(count) * float(cost_per_contract)
+        spent_by_city[city] = float(spent_by_city.get(city, 0.0)) + float(count) * float(cost_per_contract)

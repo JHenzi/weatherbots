@@ -18,8 +18,8 @@ services:
       KALSHI_PRIVATE_KEY_PATH: /run/secrets/kalshi_key.pem
 
       # Defaults: safe demo + dry-run. Change to prod + true for live trading.
-      WT_ENV: demo
-      WT_SEND_ORDERS: "false"
+      WT_ENV: prod
+      WT_SEND_ORDERS: "true"
       WT_DAILY_BUDGET: "50"
       # Avoid with: docker exec weather-trader /bin/bash /app/scripts/run_calibrate.sh
       # If you want to run the calibrate job once on startup, set this to "true".
