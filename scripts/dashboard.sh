@@ -65,6 +65,7 @@ trades_path = "Data/trades_history.csv"
 decisions_path = "Data/decisions_history.csv"
 eval_path = "Data/eval_history.csv"
 metrics_path = "Data/daily_metrics.csv"
+hourly_path = "Data/hourly_forecasts.csv"
 
 preds = _read_csv(pred_path)
 trades = _read_csv(trades_path)
@@ -85,7 +86,7 @@ print(f"weather-trader status  |  env={env}  |  now={now}")
 print()
 
 print("Data files (how many rows):")
-for p in [pred_path, trades_path, decisions_path, eval_path, metrics_path]:
+for p in [pred_path, trades_path, decisions_path, eval_path, metrics_path, hourly_path]:
     status = "missing"
     if os.path.exists(p):
         try:
@@ -149,6 +150,67 @@ else:
     for r in rows_in:
         rows.append([fmt(r.get(k)) for _, k in cols])
     _print_table([h for h, _ in cols], rows)
+print()
+
+print("Hourly forecast trailing average (last 6 samples):")
+if not os.path.exists(hourly_path):
+    print("  (missing Data/hourly_forecasts.csv)")
+else:
+    hourly = _read_csv(hourly_path)
+    # Prefer the trade_date from predictions_latest; fallback to most recent trade_date in hourly file.
+    trade_date = ""
+    if preds:
+        trade_date = (preds[0].get("date") or "").strip()
+    if not trade_date and hourly:
+        trade_date = max((r.get("trade_date") or "").strip() for r in hourly)
+
+    def _mean(xs):
+        return sum(xs) / len(xs) if xs else None
+
+    def _std(xs):
+        if len(xs) <= 1:
+            return 0.0
+        m = sum(xs) / len(xs)
+        return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
+
+    rows = []
+    for city in ["ny", "il", "tx", "fl"]:
+        pts = []
+        for r in hourly:
+            if (r.get("city") or "").strip().lower() != city:
+                continue
+            if trade_date and (r.get("trade_date") or "").strip() != trade_date:
+                continue
+            ts = _parse_iso(r.get("timestamp", ""))
+            if ts is None:
+                continue
+            mf = (r.get("mean_forecast") or "").strip()
+            if not mf:
+                continue
+            try:
+                v = float(mf)
+            except Exception:
+                continue
+            pts.append((ts, v))
+        pts.sort(key=lambda x: x[0])
+        pts = pts[-6:]
+        xs = [v for _, v in pts]
+        if not xs:
+            rows.append([trade_date, city, 0, "", "", "", ""])
+            continue
+        avg = _mean(xs)
+        jitter = _std(xs) if len(xs) >= 2 else ""
+        drift = (xs[-1] - xs[0]) if len(xs) >= 2 else ""
+        rows.append([
+            trade_date,
+            city,
+            len(xs),
+            f"{xs[-1]:.2f}",
+            f"{avg:.2f}" if avg is not None else "",
+            (f"{jitter:.2f}" if jitter != "" else ""),
+            (f"{drift:+.2f}" if drift != "" else ""),
+        ])
+    _print_table(["trade_date","city","n","last(F)","trail_avg(F)","jitter(F)","drift(F)"], rows)
 print()
 
 print(f"Last {limit} placed bets (real orders):")
