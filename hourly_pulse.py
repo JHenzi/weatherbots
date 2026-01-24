@@ -27,8 +27,17 @@ LATLON = {
 }
 
 
-def _utcnow_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+def _local_tz() -> dt.tzinfo:
+    tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
+    try:
+        return ZoneInfo(tzname)
+    except Exception:
+        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
+def _now_iso_local() -> str:
+    # ISO 8601 with offset, e.g. 2026-01-24T09:38:51-05:00
+    return dt.datetime.now(tz=_local_tz()).isoformat()
 
 
 def _safe_float(x) -> float | None:
@@ -104,17 +113,79 @@ def _append_hourly_row(path: str, row: dict) -> None:
         "tmax_visual_crossing",
         "tmax_tomorrow",
         "tmax_weatherapi",
+        "tmax_google_weather",
         "tmax_openweathermap",
         "tmax_pirateweather",
         "tmax_weather_gov",
         "sources_used",
         "weights_used",
     ]
+    if not write_header:
+        try:
+            with open(path, "r", newline="") as f:
+                r = csv.reader(f)
+                existing = next(r, [])
+            existing = [str(x).strip() for x in existing if str(x).strip() != ""]
+            if existing != fieldnames:
+                _migrate_hourly_forecasts_schema(path, fieldnames)
+        except Exception:
+            # If migration fails, continue append; worst case the row is still preserved.
+            pass
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
         w.writerow({k: row.get(k, "") for k in fieldnames})
+
+
+def _migrate_hourly_forecasts_schema(path: str, new_fieldnames: list[str]) -> None:
+    """
+    Data/hourly_forecasts.csv was historically written with a smaller header; when we add new
+    provider columns, appends can create shifted rows. This migration rewrites the file using
+    the canonical header.
+    """
+    old_fieldnames = [
+        "timestamp",
+        "city",
+        "mean_forecast",
+        "spread_at_time",
+        "trade_date",
+        "tmax_open_meteo",
+        "tmax_visual_crossing",
+        "tmax_tomorrow",
+        "tmax_weatherapi",
+        "tmax_openweathermap",
+        "tmax_pirateweather",
+        "tmax_weather_gov",
+        "sources_used",
+        "weights_used",
+    ]
+
+    with open(path, "r", newline="") as f:
+        r = csv.reader(f)
+        _ = next(r, None)  # existing header (may be stale)
+        rows = list(r)
+
+    out_rows: list[dict[str, str]] = []
+    for row in rows:
+        if not row:
+            continue
+        if len(row) == len(old_fieldnames):
+            d = dict(zip(old_fieldnames, row))
+        elif len(row) == len(new_fieldnames):
+            d = dict(zip(new_fieldnames, row))
+        else:
+            # best-effort: map the old schema prefix
+            d = dict(zip(old_fieldnames, row[: len(old_fieldnames)]))
+        out_rows.append(d)
+
+    tmp = path + ".tmp"
+    with open(tmp, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=new_fieldnames)
+        w.writeheader()
+        for d in out_rows:
+            w.writerow({k: d.get(k, "") for k in new_fieldnames})
+    os.replace(tmp, path)
 
 
 def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> float | None:
@@ -249,6 +320,72 @@ def forecast_tmax_weatherapi(*, city: str, trade_dt: dt.date) -> float | None:
         return None
     day = (fc[0] or {}).get("day") or {}
     return _safe_float(day.get("maxtemp_f"))
+
+
+def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | None:
+    """
+    Google Weather hourly forecast -> take max hourly temp on trade_dt (local to the location).
+
+    Env var:
+      - GOOGLE (preferred, per your .env)
+      - GOOGLE_WEATHER_API_KEY (fallback)
+    """
+    api_key = os.getenv("GOOGLE") or os.getenv("GOOGLE_WEATHER_API_KEY")
+    if not api_key:
+        return None
+
+    lat, lon = LATLON[city]
+    url = "https://weather.googleapis.com/v1/forecast/hours:lookup"
+    params = {
+        "key": api_key,
+        "location.latitude": lat,
+        "location.longitude": lon,
+        "hours": 240,
+    }
+    session = (
+        requests_cache.CachedSession("Data/google_weather_cache", expire_after=3600)
+        if requests_cache is not None
+        else requests.Session()
+    )
+    r = session.get(url, params=params, timeout=30)
+    if r.status_code != 200:
+        return None
+    js = r.json() or {}
+
+    tz_id = ((js.get("timeZone") or {}) if isinstance(js.get("timeZone"), dict) else {}).get("id") or "UTC"
+    try:
+        tz = ZoneInfo(str(tz_id))
+    except Exception:
+        tz = ZoneInfo("UTC")
+
+    hours = js.get("forecastHours") or []
+    best = None
+    for h in hours:
+        interval = (h or {}).get("interval") or {}
+        st = interval.get("startTime") or interval.get("endTime")
+        if not st:
+            continue
+        try:
+            t = dt.datetime.fromisoformat(str(st).replace("Z", "+00:00"))
+        except Exception:
+            continue
+        try:
+            local_day = t.astimezone(tz).date()
+        except Exception:
+            local_day = t.date()
+        if local_day != trade_dt:
+            continue
+
+        temp = (h or {}).get("temperature") or {}
+        deg = temp.get("degrees")
+        unit = str(temp.get("unit") or "").upper()
+        fv = _safe_float(deg)
+        if fv is None:
+            continue
+        if unit == "CELSIUS":
+            fv = (fv * 9.0 / 5.0) + 32.0
+        best = fv if best is None else max(best, fv)
+    return best
 
 
 def forecast_tmax_openweathermap(*, city: str, trade_dt: dt.date) -> float | None:
@@ -387,12 +524,15 @@ if __name__ == "__main__":
     weights_all = _load_weights(args.weights_json)
     tomorrow_state: dict[str, float | None] = {"last_req_ts": None}
 
+    started = _now_iso_local()
+    wrote = 0
     for city in CITIES:
         # Per-source forecasts
         tmax_open_meteo = _try_call(forecast_tmax_open_meteo, city=city, trade_dt=trade_dt)
         tmax_visual_crossing = _try_call(forecast_tmax_visual_crossing, city=city, trade_dt=trade_dt)
         tmax_tomorrow = _try_call(forecast_tmax_tomorrow, city=city, trade_dt=trade_dt, _state=tomorrow_state)
         tmax_weatherapi = _try_call(forecast_tmax_weatherapi, city=city, trade_dt=trade_dt)
+        tmax_google_weather = _try_call(forecast_tmax_google_weather, city=city, trade_dt=trade_dt)
         tmax_openweathermap = _try_call(forecast_tmax_openweathermap, city=city, trade_dt=trade_dt)
         tmax_pirateweather = _try_call(forecast_tmax_pirateweather, city=city, trade_dt=trade_dt)
         tmax_weather_gov = _try_call(forecast_tmax_weather_gov, city=city, trade_dt=trade_dt)
@@ -402,6 +542,7 @@ if __name__ == "__main__":
             "visual-crossing": tmax_visual_crossing,
             "tomorrow": tmax_tomorrow,
             "weatherapi": tmax_weatherapi,
+            "google-weather": tmax_google_weather,
             "openweathermap": tmax_openweathermap,
             "pirateweather": tmax_pirateweather,
             "weather.gov": tmax_weather_gov,
@@ -411,7 +552,7 @@ if __name__ == "__main__":
         if not available:
             # Still write a row so we can see "no data" periods in the history.
             row = {
-                "timestamp": _utcnow_iso(),
+                "timestamp": _now_iso_local(),
                 "city": city,
                 "trade_date": trade_dt.strftime("%Y-%m-%d"),
                 "mean_forecast": "",
@@ -420,6 +561,7 @@ if __name__ == "__main__":
                 "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
                 "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
                 "tmax_weatherapi": "" if tmax_weatherapi is None else f"{tmax_weatherapi:.4f}",
+                "tmax_google_weather": "" if tmax_google_weather is None else f"{tmax_google_weather:.4f}",
                 "tmax_openweathermap": "" if tmax_openweathermap is None else f"{tmax_openweathermap:.4f}",
                 "tmax_pirateweather": "" if tmax_pirateweather is None else f"{tmax_pirateweather:.4f}",
                 "tmax_weather_gov": "" if tmax_weather_gov is None else f"{tmax_weather_gov:.4f}",
@@ -427,6 +569,7 @@ if __name__ == "__main__":
                 "weights_used": "",
             }
             _append_hourly_row(args.out_csv, row)
+            wrote += 1
             continue
 
         # Weights: prefer learned weights when available; otherwise uniform across available sources.
@@ -443,7 +586,7 @@ if __name__ == "__main__":
         spread_at_time = statistics.pstdev(list(available.values())) if len(available) > 1 else 0.0
 
         row = {
-            "timestamp": _utcnow_iso(),
+            "timestamp": _now_iso_local(),
             "city": city,
             "trade_date": trade_dt.strftime("%Y-%m-%d"),
             "mean_forecast": f"{mean_forecast:.4f}",
@@ -452,6 +595,7 @@ if __name__ == "__main__":
             "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
             "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
             "tmax_weatherapi": "" if tmax_weatherapi is None else f"{tmax_weatherapi:.4f}",
+            "tmax_google_weather": "" if tmax_google_weather is None else f"{tmax_google_weather:.4f}",
             "tmax_openweathermap": "" if tmax_openweathermap is None else f"{tmax_openweathermap:.4f}",
             "tmax_pirateweather": "" if tmax_pirateweather is None else f"{tmax_pirateweather:.4f}",
             "tmax_weather_gov": "" if tmax_weather_gov is None else f"{tmax_weather_gov:.4f}",
@@ -459,3 +603,9 @@ if __name__ == "__main__":
             "weights_used": ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]),
         }
         _append_hourly_row(args.out_csv, row)
+        wrote += 1
+
+    print(
+        f"[hourly_pulse.py] done start={started} trade_date={trade_dt.isoformat()} "
+        f"cities_written={wrote} out={args.out_csv}"
+    )

@@ -6,6 +6,16 @@ import os
 from truth_engine import get_actual_tmax_from_nws_cli
 
 
+def _local_tz() -> dt.tzinfo:
+    tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tzname)
+    except Exception:
+        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
 def _parse_args():
     p = argparse.ArgumentParser(description="Backfill settlement temperature and realized PnL into Data/eval_history.csv.")
     p.add_argument("--trade-date", type=str, required=True, help="YYYY-MM-DD (event date to settle)")
@@ -107,7 +117,7 @@ if __name__ == "__main__":
         row["bucket_hit"] = "1" if hit else "0"
         row["realized_pnl_cents"] = str(int(pnl_cents))
         row["realized_pnl_dollars"] = f"{pnl_cents/100.0:.2f}"
-        row["settled_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        row["settled_at"] = dt.datetime.now(tz=_local_tz()).isoformat()
         updated += 1
 
     # Rewrite file atomically-ish (best effort).

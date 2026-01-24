@@ -9,10 +9,12 @@ from truth_engine import get_actual_tmax_from_nws_cli
 
 
 SOURCES = [
+    ("consensus", "tmax_predicted"),
     ("open-meteo", "tmax_open_meteo"),
     ("visual-crossing", "tmax_visual_crossing"),
     ("tomorrow", "tmax_tomorrow"),
     ("weatherapi", "tmax_weatherapi"),
+    ("google-weather", "tmax_google_weather"),
     ("openweathermap", "tmax_openweathermap"),
     ("pirateweather", "tmax_pirateweather"),
     ("weather.gov", "tmax_weather_gov"),
@@ -128,7 +130,14 @@ def _append_weights_history(path: str, weights: dict) -> None:
         )
         if write_header:
             w.writeheader()
-        run_ts = dt.datetime.now(dt.timezone.utc).isoformat()
+        # Log in local timezone (TZ env, default ET) for human readability.
+        try:
+            from zoneinfo import ZoneInfo
+
+            tz = ZoneInfo((os.getenv("TZ") or "").strip() or "America/New_York")
+        except Exception:
+            tz = dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+        run_ts = dt.datetime.now(tz=tz).isoformat()
         for city, payload in (weights or {}).items():
             w.writerow(
                 {

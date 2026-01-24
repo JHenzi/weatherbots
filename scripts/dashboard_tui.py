@@ -88,7 +88,7 @@ def _fmt_ts_local(ts: str, tz: dt.tzinfo) -> str:
     return (lt.strftime("%Y-%m-%d %H:%M:%S") + (f" {z}" if z else "")).strip()
 
 
-def _hourly_trailing_stats(
+def _intraday_window_stats(
     rows: list[dict[str, str]],
     *,
     city: str,
@@ -119,18 +119,19 @@ def _hourly_trailing_stats(
     xs = [v for _, v in pts]
     n = len(xs)
     avg = sum(xs) / n if n else None
-    jitter = 0.0
     drift = None
     if n >= 2:
-        m = avg or 0.0
-        jitter = (sum((x - m) ** 2 for x in xs) / n) ** 0.5
         drift = xs[-1] - xs[0]
+    diffs = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)] if n >= 2 else []
+    nondecreasing = bool(diffs) and all(d >= 0 for d in diffs) and any(d > 0 for d in diffs)
+    nonincreasing = bool(diffs) and all(d <= 0 for d in diffs) and any(d < 0 for d in diffs)
+    trend = "increasing" if nondecreasing else ("decreasing" if nonincreasing else "non_monotonic")
     return {
         "n": n,
         "avg": avg,
         "last": xs[-1],
-        "jitter": jitter if n >= 2 else None,
         "drift": drift,
+        "trend": trend,
         "last_ts": pts[-1][0].isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
 
@@ -254,14 +255,14 @@ def _render(env: str, limit: int) -> dict[str, Any]:
     trades_path = "Data/trades_history.csv"
     decisions_path = "Data/decisions_history.csv"
     eval_path = "Data/eval_history.csv"
-    hourly_path = "Data/hourly_forecasts.csv"
+    intraday_path = "Data/intraday_forecasts.csv"
 
     preds = _read_csv(pred_path)
     pred_hist = _read_csv(pred_hist_path)
     trades = _read_csv(trades_path)
     decisions = _read_csv(decisions_path)
     evals = _read_csv(eval_path)
-    hourly = _read_csv(hourly_path)
+    intraday = _read_csv(intraday_path)
 
     live_trades = [t for t in trades if (t.get("env") or "").strip() == env and _truthy(t.get("send_orders"))]
     live_trades.sort(key=lambda r: (r.get("run_ts") or ""))
@@ -357,15 +358,18 @@ def _render(env: str, limit: int) -> dict[str, Any]:
             ]
         )
 
-    # Hourly trailing average of mean_forecast (Temporal Stability Engine)
-    if not trade_date and hourly:
-        # fallback to most recent trade_date in hourly file
-        trade_date = max((r.get("trade_date") or "").strip() for r in hourly)
+    # Intraday window stats (09/15/21 + 22)
+    if not trade_date and intraday:
+        trade_date = max((r.get("trade_date") or "").strip() for r in intraday)
 
     trailing_rows = []
-    trailing_window = 6
+    trailing_window = 4
     for city in ("ny", "il", "tx", "fl"):
-        st = _hourly_trailing_stats(hourly, city=city, trade_date=trade_date, window=trailing_window) if trade_date else None
+        st = (
+            _intraday_window_stats(intraday, city=city, trade_date=trade_date, window=trailing_window)
+            if trade_date
+            else None
+        )
         if st is None:
             trailing_rows.append([city, trade_date or "", "0", "", "", "", ""])
             continue
@@ -376,7 +380,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
                 str(st["n"]),
                 f"{float(st['last']):.2f}",
                 f"{float(st['avg']):.2f}" if st.get("avg") is not None else "",
-                f"{float(st['jitter']):.2f}" if st.get("jitter") is not None else "",
+                str(st.get("trend") or ""),
                 f"{float(st['drift']):+.2f}" if st.get("drift") is not None else "",
             ]
         )
@@ -464,7 +468,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         "trades_history": count_rows(trades_path),
         "decisions_history": count_rows(decisions_path),
         "eval_history": count_rows(eval_path),
-        "hourly_forecasts": count_rows(hourly_path),
+        "intraday_forecasts": count_rows(intraday_path),
     }
 
     return {
@@ -524,7 +528,7 @@ def main():
                 f"trades={payload['files']['trades_history']}, "
                 f"decisions={payload['files']['decisions_history']}, "
                 f"eval={payload['files']['eval_history']}, "
-                f"hourly={payload['files']['hourly_forecasts']}"
+                f"intraday={payload['files']['intraday_forecasts']}"
             )
             try:
                 if h > 1:
@@ -646,14 +650,14 @@ def main():
                 continue
 
             trailing_lines = _tabulate(
-                ["city", "trade_date", "n", "last(F)", "trail_avg(F)", "jitter(F)", "drift(F)"],
+                ["city", "trade_date", "n", "last(F)", "trail_avg(F)", "trend", "drift(F)"],
                 payload.get("trailing_table") or [],
                 w,
             )
             y = _draw_section(
                 stdscr,
                 y,
-                "Hourly forecast trailing average (last 6 samples):",
+                "Intraday forecast window (last 4 samples):",
                 trailing_lines,
                 w,
             )

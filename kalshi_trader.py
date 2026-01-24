@@ -18,6 +18,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _local_tz() -> datetime.tzinfo:
+    tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(tzname)
+    except Exception:
+        return datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
+
+
+def _now_iso() -> str:
+    # ISO 8601 with local offset, e.g. 2026-01-24T09:55:17-05:00
+    return datetime.datetime.now(tz=_local_tz()).isoformat()
+
+
 def _base_url(env_name: str) -> str:
     env_name = (env_name or "").strip().lower()
     if env_name in ("prod", "production"):
@@ -178,26 +193,39 @@ def _load_city_metadata_mae(path: str) -> dict[str, float]:
     return {}
 
 
-def get_temporal_stability(
+def _parse_iso_dt(s: str) -> datetime.datetime | None:
+    ss = (s or "").strip()
+    if not ss:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(ss.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def get_intraday_gate(
     *,
     city: str,
     trade_date: str,
-    hourly_csv: str = "Data/hourly_forecasts.csv",
-    window: int = 6,
-) -> dict[str, float | int | None] | None:
+    intraday_csv: str = "Data/intraday_forecasts.csv",
+    window: int = 4,
+    sigma_cap: float = 2.5,
+) -> dict[str, object] | None:
     """
-    Compute temporal stability (jitter) and drift from the hourly forecast history.
+    Gate trading based on a small number of intraday snapshots.
 
-    Jitter (temporal_stability): stddev of mean_forecast over the last N hourly samples.
-    Drift: last_mean - first_mean over the same window.
+    Requirements:
+    - we have the last N snapshots for (city, trade_date) (N=4: 09,15,21,22)
+    - the mean_forecast is monotonic across the window (all increasing OR all decreasing)
+    - current_sigma (final snapshot) < sigma_cap
     """
-    if not hourly_csv or not os.path.exists(hourly_csv):
+    if not intraday_csv or not os.path.exists(intraday_csv):
         return None
-    window = max(1, int(window))
+    window = max(2, int(window))
 
-    samples: list[tuple[datetime.datetime, float]] = []
+    rows: list[tuple[datetime.datetime, float, float]] = []  # (ts, mean, sigma)
     try:
-        with open(hourly_csv, "r", newline="") as f:
+        with open(intraday_csv, "r", newline="") as f:
             r = csv.DictReader(f)
             for row in r:
                 if not row:
@@ -206,43 +234,89 @@ def get_temporal_stability(
                     continue
                 if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
                     continue
-                mf = row.get("mean_forecast")
-                mf_f = None if mf in (None, "") else float(mf)
-                if mf_f is None:
+                ts = _parse_iso_dt(row.get("timestamp") or "")
+                if ts is None:
                     continue
-                ts = (row.get("timestamp") or "").strip()
-                if not ts:
+                mf = row.get("mean_forecast")
+                sg = row.get("current_sigma")
+                if mf in (None, "") or sg in (None, ""):
                     continue
                 try:
-                    t = datetime.datetime.fromisoformat(ts)
+                    mean_f = float(mf)
+                    sigma_f = float(sg)
                 except Exception:
                     continue
-                if t.tzinfo is None:
-                    # Treat naive timestamps as UTC for safety.
-                    t = t.replace(tzinfo=datetime.timezone.utc)
-                samples.append((t, float(mf_f)))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_local_tz())
+                rows.append((ts, mean_f, sigma_f))
     except Exception:
         return None
 
-    if not samples:
+    if not rows:
         return None
+    rows.sort(key=lambda x: x[0])
+    rows = rows[-window:]
+    means = [m for _, m, _ in rows]
+    sigmas = [s for _, _, s in rows]
+    if len(means) < window:
+        # Not enough snapshots yet: return what we do have so the caller can use it as a soft signal.
+        cur_sigma = float(sigmas[-1]) if sigmas else None
+        return {
+            "ok": False,
+            "reason": f"insufficient_intraday;n={len(means)};need={window}",
+            "n": len(means),
+            "means": means,
+            "current_sigma": cur_sigma,
+            "trend": "unknown" if len(means) < 2 else "partial",
+        }
 
-    samples.sort(key=lambda x: x[0])
-    samples = samples[-window:]
-    means = [m for _, m in samples]
-    n = len(means)
-    if n < 2:
-        return {"n": n, "temporal_stability": None, "drift": None, "first_mean": means[0], "last_mean": means[0]}
+    diffs = [means[i + 1] - means[i] for i in range(len(means) - 1)]
+    nondecreasing = all(d >= 0 for d in diffs) and any(d > 0 for d in diffs)
+    nonincreasing = all(d <= 0 for d in diffs) and any(d < 0 for d in diffs)
+    trend = "increasing" if nondecreasing else ("decreasing" if nonincreasing else "non_monotonic")
+    current_sigma = float(sigmas[-1])
 
-    jitter = float(statistics.pstdev(means))
-    drift = float(means[-1] - means[0])
+    if current_sigma >= float(sigma_cap):
+        return {
+            "ok": False,
+            "reason": f"sigma_too_high;sigma={current_sigma:.4f};cap={float(sigma_cap):.4f}",
+            "n": len(means),
+            "trend": trend,
+            "means": means,
+            "current_sigma": current_sigma,
+        }
+    if trend == "non_monotonic":
+        return {
+            "ok": False,
+            "reason": f"non_monotonic;means={','.join([f'{x:.2f}' for x in means])}",
+            "n": len(means),
+            "trend": trend,
+            "means": means,
+            "current_sigma": current_sigma,
+        }
     return {
-        "n": n,
-        "temporal_stability": jitter,
-        "drift": drift,
-        "first_mean": float(means[0]),
-        "last_mean": float(means[-1]),
+        "ok": True,
+        "reason": f"ok;trend={trend};means={','.join([f'{x:.2f}' for x in means])};sigma={current_sigma:.4f}",
+        "n": len(means),
+        "trend": trend,
+        "means": means,
+        "current_sigma": current_sigma,
     }
+
+
+def _sigma_size_scale(*, sigma: float, sigma_cap: float = 2.5) -> float:
+    """
+    Position-size scale factor based on current sigma (cross-source dispersion).
+    - If sigma <= 1.5 => 1.0
+    - If sigma approaches sigma_cap => down to 0.25
+    """
+    if sigma <= 1.5:
+        return 1.0
+    if sigma >= sigma_cap:
+        return 0.25
+    # linear between 1.5 and sigma_cap
+    t = (float(sigma_cap) - float(sigma)) / (float(sigma_cap) - 1.5)
+    return max(0.25, min(1.0, float(t)))
 
 
 def get_balance(client: KalshiHttpClient) -> dict:
@@ -709,7 +783,9 @@ def make_trade(
 
     subtitle = chosen.get("subtitle", "")
     ticker = chosen.get("ticker")
-    print(f"Pred_mean={pred:.2f} → chosen_bucket='{subtitle}' → market={ticker}")
+    # NOTE: We choose a bucket based on selection mode (probability or EV),
+    # not necessarily the bucket containing pred_mean.
+    print(f"Pred_mean={pred:.2f} | chosen_bucket='{subtitle}' | market={ticker}")
 
     # NOTE: trades_log is written only when a trade is allowed to proceed.
 
@@ -740,7 +816,7 @@ def make_trade(
                 w.writeheader()
             w.writerow(
                 {
-                    "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "run_ts": _now_iso(),
                     "env": env,
                     "trade_date": trade_dt_str,
                     "city": city,
@@ -849,6 +925,15 @@ def _parse_args():
         help="Append trade intents to this CSV (useful for run_daily.py).",
     )
     p.add_argument(
+        "--idempotency-log",
+        type=str,
+        default="Data/trades_history.csv",
+        help=(
+            "CSV used to check whether we've already live-traded this env/date/city. "
+            "Dry-runs will still read this to report 'would skip in live'."
+        ),
+    )
+    p.add_argument(
         "--decisions-log",
         type=str,
         default=None,
@@ -860,6 +945,24 @@ def _parse_args():
     p.add_argument("--eval-log", type=str, default=None, help="Append evaluation rows to this CSV.")
 
     p.add_argument("--orderbook-depth", type=int, default=25)
+    p.add_argument(
+        "--selection-mode",
+        type=str,
+        default="closest",
+        choices=["closest", "max_prob", "best_ev"],
+        help=(
+            "How to choose the market bucket. "
+            "closest = choose the bucket whose range contains mu (or is closest to it); "
+            "max_prob = choose the bucket with highest model probability; "
+            "best_ev = choose the bucket with highest expected value vs market price."
+        ),
+    )
+    p.add_argument(
+        "--min-model-prob",
+        type=float,
+        default=0.15,
+        help="Soft threshold used to downscale sizing when selected bucket probability is low (default 0.15).",
+    )
     # sigma is now computed per city as max(current_spread, historical_MAE), with sigma_floor as fallback
     p.add_argument("--sigma-floor", type=float, default=2.0, help="Fallback sigma when city metadata is unavailable")
     p.add_argument("--sigma-mult", type=float, default=1.0, help="Legacy (ignored when city metadata is present)")
@@ -1054,18 +1157,22 @@ if __name__ == "__main__":
         print(f"\n----------- {series} / city={city} / trade_date={trade_dt_str} -----------")
 
         # Idempotency: one live trade per city per date.
-        if bool(args.send_orders) and _already_traded(
-            trades_log=args.trades_log,
+        already_live = _already_traded(
+            trades_log=args.idempotency_log,
             env=args.env,
             trade_date=trade_dt_str,
             city=city,
-        ):
-            print("SKIP: already traded for this city/date (idempotency)")
+        )
+        if already_live:
+            if bool(args.send_orders):
+                print("SKIP: already traded for this city/date (idempotency)")
+            else:
+                print("NOTE: already traded live for this city/date (idempotency); continuing dry-run to show hypotheticals")
             if args.decisions_log:
                 _append_decision(
                     args.decisions_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1074,22 +1181,22 @@ if __name__ == "__main__":
                         "pred_tmax_f": "",
                         "spread_f": "",
                         "confidence_score": "",
-                        "decision": "skip",
-                        "reason": "already_traded",
+                        "decision": ("skip" if bool(args.send_orders) else "note"),
+                        "reason": "already_traded_live",
                     },
                 )
             if args.eval_log:
                 _append_eval_row(
                     args.eval_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
                         "series_ticker": series,
                         "event_ticker": event_ticker,
-                        "decision": "skip",
-                        "reason": "already_traded",
+                        "decision": ("skip" if bool(args.send_orders) else "note"),
+                        "reason": "already_traded_live",
                         "mu_tmax_f": "",
                         "sigma_f": "",
                         "spread_f": "",
@@ -1117,7 +1224,8 @@ if __name__ == "__main__":
                         "send_orders": bool(args.send_orders),
                     },
                 )
-            continue
+            if bool(args.send_orders):
+                continue
 
         key = (trade_dt_str, city)
         if key not in preds:
@@ -1145,7 +1253,7 @@ if __name__ == "__main__":
                 _append_decision(
                     args.decisions_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1165,7 +1273,7 @@ if __name__ == "__main__":
                 _append_decision(
                     args.decisions_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1180,54 +1288,55 @@ if __name__ == "__main__":
                 )
             continue
 
-        # Temporal Stability Engine gate: only trade when the forecast is stable (low jitter).
-        stability_window = 6
-        st = get_temporal_stability(city=city, trade_date=trade_dt_str, window=stability_window)
-        if st is None or st.get("n", 0) is None or int(st.get("n") or 0) < int(stability_window) or st.get("temporal_stability") is None:
-            n = 0 if st is None else int(st.get("n") or 0)
-            print(f"SKIP: insufficient hourly forecast history for stability check (n={n} < {stability_window})")
-            if args.decisions_log:
-                _append_decision(
-                    args.decisions_log,
-                    {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "env": args.env,
-                        "trade_date": trade_dt_str,
-                        "city": city,
-                        "series_ticker": series,
-                        "event_ticker": event_ticker,
-                        "pred_tmax_f": f"{pred:.4f}",
-                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
-                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
-                        "decision": "skip",
-                        "reason": f"insufficient_hourly_forecasts;n={n};need={int(stability_window)}",
-                    },
-                )
-            continue
+        # Intraday signal (09/15/21 + final 22:00 snapshot):
+        # IMPORTANT: this is intentionally a *soft* signal (sizing/logging), not a hard trade gate.
+        gate = get_intraday_gate(city=city, trade_date=trade_dt_str, window=4, sigma_cap=2.5)
+        gate_ok = bool(gate is not None and bool(gate.get("ok")))
+        gate_reason = "intraday_missing" if gate is None else str(gate.get("reason") or "")
+        gate_n = 0 if gate is None else int(gate.get("n") or 0)
+        gate_trend = "" if gate is None else str(gate.get("trend") or "")
 
-        jitter = float(st.get("temporal_stability") or 0.0)
-        drift = float(st.get("drift") or 0.0)
-        threshold = float(city_mae.get(city, 1.5))
-        if jitter > threshold:
-            print(f"SKIP: high forecast jitter (jitter={jitter:.3f}F > threshold={threshold:.3f}F, drift={drift:+.3f}F)")
-            if args.decisions_log:
-                _append_decision(
-                    args.decisions_log,
-                    {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "env": args.env,
-                        "trade_date": trade_dt_str,
-                        "city": city,
-                        "series_ticker": series,
-                        "event_ticker": event_ticker,
-                        "pred_tmax_f": f"{pred:.4f}",
-                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
-                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
-                        "decision": "skip",
-                        "reason": f"high_forecast_jitter;jitter={jitter:.4f};threshold={threshold:.4f};drift={drift:.4f};n={int(st.get('n') or 0)}",
-                    },
-                )
-            continue
+        # Use the best available estimate of current sigma. For intraday-based predictions this
+        # should equal spread_f (written from intraday_pulse), but fall back to gate if needed.
+        current_sigma = None
+        if spread_f is not None:
+            current_sigma = float(spread_f)
+        elif gate is not None and gate.get("current_sigma") not in (None, ""):
+            try:
+                current_sigma = float(gate.get("current_sigma"))  # type: ignore[arg-type]
+            except Exception:
+                current_sigma = None
+
+        sigma_scale = _sigma_size_scale(sigma=float(current_sigma or 999.0), sigma_cap=2.5) if current_sigma is not None else 0.5
+
+        # Penalty for missing/partial/non-monotonic signals (still allow trading, just smaller).
+        trend_scale = 1.0
+        if not gate_ok:
+            if gate is None:
+                trend_scale = 0.25
+            else:
+                r = gate_reason.lower()
+                if "sigma_too_high" in r:
+                    trend_scale = 0.25
+                elif "non_monotonic" in r:
+                    trend_scale = 0.50
+                elif "insufficient_intraday" in r:
+                    trend_scale = 0.50 if gate_n >= 2 else 0.25
+                else:
+                    trend_scale = 0.50
+
+        size_scale = max(0.10, min(1.0, float(sigma_scale) * float(trend_scale)))
+        intraday_tag = (
+            f"intraday_ok;{gate_reason}"
+            if gate_ok
+            else f"intraday_soft;{gate_reason or 'unavailable'}"
+        )
+        print(
+            "Intraday signal: "
+            + f"ok={gate_ok} n={gate_n} trend={gate_trend or 'n/a'} "
+            + (f"sigma={current_sigma:.3f} " if current_sigma is not None else "sigma=? ")
+            + f"size_scale={size_scale:.3f}"
+        )
 
         event_payload = get_event(client, event_ticker)
         markets = (event_payload.get("event") or {}).get("markets") or event_payload.get("markets") or []
@@ -1241,8 +1350,9 @@ if __name__ == "__main__":
             sigma = max(float(args.sigma_floor), float(args.sigma_mult) * cur_spread)
         else:
             sigma = max(cur_spread, float(hist_mae))
-        best = None  # (ev_cents, market_dict, pricing_dict, prob, lo, hi, edge_prob, market_prob)
-        best_any = None  # same tuple as best, but without EV/spread/ceiling filters
+        selection_mode = str(getattr(args, "selection_mode", "closest") or "closest").strip().lower()
+        best = None  # (score, market_dict, pricing_dict, p_yes, lo, hi, edge_prob, market_prob, ev_cents)
+        best_any = None  # same tuple as best, but without price/spread/ev filters
         for m in markets:
             subtitle = (m.get("subtitle") or "") if isinstance(m, dict) else ""
             lo, hi = _parse_subtitle_to_range(subtitle)
@@ -1283,38 +1393,69 @@ if __name__ == "__main__":
             market_prob = yes_ask / 100.0
             edge_prob = float(p_yes) - float(market_prob)
             ev_cents = float(100.0 * float(p_yes) - float(yes_ask))
-            cand = (ev_cents, m, px, float(p_yes), lo, hi, float(edge_prob), float(market_prob))
+
+            # Selection scoring:
+            # - closest: prefer containing bucket; otherwise nearest bucket to mu
+            # - max_prob: prefer highest model probability bucket
+            # - best_ev: prefer highest EV bucket
+            if selection_mode == "max_prob":
+                score = float(p_yes)
+            elif selection_mode == "best_ev":
+                score = float(ev_cents)
+            else:
+                # distance from mu to the bucket range (0 if contained)
+                mu = float(pred)
+                if lo is None and hi is None:
+                    continue
+                if lo is None:
+                    dist = max(0.0, mu - float(hi)) if hi is not None else float("inf")
+                elif hi is None:
+                    dist = max(0.0, float(lo) - mu)
+                else:
+                    if mu < float(lo):
+                        dist = float(lo) - mu
+                    elif mu > float(hi):
+                        dist = mu - float(hi)
+                    else:
+                        dist = 0.0
+                score = -float(dist)
+            cand = (score, m, px, float(p_yes), lo, hi, float(edge_prob), float(market_prob), float(ev_cents))
 
             if best_any is None or cand[0] > best_any[0]:
                 best_any = cand
 
-            # Apply conservative filters for actual trading
+            # Apply conservative filters for actual trading (pricing/liquidity)
             if yes_ask > int(args.yes_price):
                 continue
             if yes_spread is not None and yes_spread > int(args.max_yes_spread_cents):
                 continue
-            if ev_cents < float(args.min_ev_cents):
-                continue
+            # Only enforce EV threshold in EV-selection mode.
+            if selection_mode == "best_ev":
+                if ev_cents < float(args.min_ev_cents):
+                    continue
 
             if best is None or cand[0] > best[0]:
                 best = cand
 
         if best is None:
-            print("SKIP: no qualifying market passed EV/spread/liquidity filters")
+            print("SKIP: no qualifying market passed price/spread/liquidity filters")
             reason = "no_qualifying_market"
             if best_any is not None:
-                ev_c, bm, bpx, bp, blo, bhi, bedge, bmprob = best_any
+                score, bm, bpx, bp, blo, bhi, bedge, bmprob, bev = best_any
                 bt = bm.get("ticker")
                 bask = int(bpx.get("yes_ask") or 0)
                 bspr = int(bpx.get("yes_spread") or 0)
                 bqty = int(bpx.get("ask_qty") or 0)
                 src = bpx.get("pricing_source") or ""
-                reason = f"no_qualifying_market;best={bt};ask={bask};spr={bspr};qty={bqty};ev={ev_c:.2f};px={src}"
+                reason = (
+                    f"no_qualifying_market;mode={selection_mode};best={bt};ask={bask};spr={bspr};qty={bqty};"
+                    + f"p={float(bp):.3f};ev={float(bev):.2f};score={float(score):.4f};px={src}"
+                )
             if args.decisions_log:
                 _append_decision(
                     args.decisions_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1357,7 +1498,7 @@ if __name__ == "__main__":
                 _append_eval_row(
                     args.eval_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1393,13 +1534,30 @@ if __name__ == "__main__":
                 )
             continue
 
-        ev_cents, chosen_market, px, p_yes, lo, hi, edge_prob, market_prob = best
+        score, chosen_market, px, p_yes, lo, hi, edge_prob, market_prob, ev_cents = best
         ticker = chosen_market.get("ticker")
         subtitle = chosen_market.get("subtitle", "")
         yes_ask = int(px.get("yes_ask") or 0)
         yes_spread = int(px.get("yes_spread") or 0)
         yes_bid = px.get("best_yes_bid")
         ask_qty = int(px.get("ask_qty") or 0)
+
+        print(
+            f"Selection(mode={selection_mode}): score={float(score):.4f} model_p={float(p_yes):.3f} "
+            f"market_p~{float(market_prob):.3f} edge={float(edge_prob):+.3f} ev_cents={float(ev_cents):.2f} "
+            f"(ask={yes_ask}¢ spr={yes_spread}¢ qty={ask_qty})"
+        )
+
+        # Soft probability sizing: if the chosen bucket has low probability, trade smaller.
+        prob_scale = 1.0
+        try:
+            min_p = float(getattr(args, "min_model_prob", 0.0) or 0.0)
+            if min_p > 1e-9:
+                prob_scale = min(1.0, float(p_yes) / float(min_p))
+        except Exception:
+            prob_scale = 1.0
+        prob_scale = max(0.10, min(1.0, float(prob_scale)))
+        size_scale = max(0.10, min(1.0, float(size_scale) * float(prob_scale)))
 
         remaining_total = max(0.0, float(effective_total_cap) - float(spent_total_dollars))
         remaining_city_budget = max(0.0, float(city_budgets.get(city, 0.0)) - float(spent_by_city.get(city, 0.0)))
@@ -1409,16 +1567,22 @@ if __name__ == "__main__":
 
         desired = int(args.count) if int(args.count) > 0 else 10**9
         count = min(desired, int(args.max_contracts_per_order), ask_qty, count_cap_budget)
+        # Dynamic sizing: scale down using intraday signal (after all caps, before price-impact cap).
+        count = int(math.floor(float(count) * float(size_scale)))
         # Price impact cap: don't take more than 25% of the resting best-ask size.
         max_take = max(1, int(math.floor(float(ask_qty) * 0.25)))
         count = min(int(count), int(max_take))
         if count < 1:
-            print("SKIP: budget/liquidity caps reduce count to 0")
+            print(
+                "SKIP: budget/liquidity caps reduce count to 0 "
+                + f"(ask_qty={ask_qty} yes_ask={yes_ask} budget_cap={count_cap_budget} "
+                + f"size_scale={size_scale:.3f} max_take={max_take})"
+            )
             if args.decisions_log:
                 _append_decision(
                     args.decisions_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1428,14 +1592,18 @@ if __name__ == "__main__":
                         "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
                         "confidence_score": "" if confidence is None else f"{confidence:.4f}",
                         "decision": "skip",
-                        "reason": "count_zero_after_caps",
+                        "reason": (
+                            "count_zero_after_caps;"
+                            + f"ask_qty={ask_qty};yes_ask={yes_ask};budget_cap={count_cap_budget};"
+                            + f"size_scale={size_scale:.4f};max_take={max_take}"
+                        ),
                     },
                 )
             if args.eval_log:
                 _append_eval_row(
                     args.eval_log,
                     {
-                        "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "run_ts": _now_iso(),
                         "env": args.env,
                         "trade_date": trade_dt_str,
                         "city": city,
@@ -1480,7 +1648,7 @@ if __name__ == "__main__":
             _append_decision(
                 args.decisions_log,
                 {
-                    "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "run_ts": _now_iso(),
                     "env": args.env,
                     "trade_date": trade_dt_str,
                     "city": city,
@@ -1492,7 +1660,7 @@ if __name__ == "__main__":
                     "decision": "trade",
                     "reason": (
                         (reason + ";" if reason else "")
-                        + f"stability_ok;jitter={jitter:.4f};threshold={threshold:.4f};drift={drift:.4f};n={int(st.get('n') or 0)};"
+                        + f"{intraday_tag};mode={selection_mode};p={float(p_yes):.3f};ev={float(ev_cents):.2f};size_scale={size_scale:.4f};"
                         + f"ticker={ticker};ask={yes_ask};ev={ev_cents:.2f}"
                     ),
                 },
@@ -1501,7 +1669,7 @@ if __name__ == "__main__":
             _append_eval_row(
                 args.eval_log,
                 {
-                    "run_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "run_ts": _now_iso(),
                     "env": args.env,
                     "trade_date": trade_dt_str,
                     "city": city,

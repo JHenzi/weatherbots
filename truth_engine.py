@@ -1,4 +1,5 @@
 import datetime as dt
+import html
 import re
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ class CliTruth:
 
 _SUMMARY_RE = re.compile(r"SUMMARY FOR ([A-Z]+) (\d{1,2}) (\d{4})", re.IGNORECASE)
 _MAX_RE = re.compile(r"^MAXIMUM\s+(-?\d+)\b", re.IGNORECASE)
+_PRE_RE = re.compile(r"<pre[^>]*>([\s\S]*?)</pre>", re.IGNORECASE)
 
 
 def _fetch_cli_text(*, site: str, issuedby: str, version: int, session: requests_cache.CachedSession) -> str:
@@ -39,7 +41,13 @@ def _fetch_cli_text(*, site: str, issuedby: str, version: int, session: requests
     }
     r = session.get(url, params=params, timeout=30)
     r.raise_for_status()
-    return r.text
+    # product.php returns HTML; the actual product text is inside a <pre> block.
+    raw = r.text or ""
+    m = _PRE_RE.search(raw)
+    if not m:
+        return raw
+    # Unescape HTML entities and preserve newlines.
+    return html.unescape(m.group(1))
 
 
 def _parse_target_date(text: str) -> dt.date | None:
@@ -84,6 +92,7 @@ def get_actual_tmax_from_nws_cli(city: str, target_date: dt.date, *, max_version
     for v in range(1, max_versions + 1):
         text = _fetch_cli_text(site=cfg["site"], issuedby=cfg["issuedby"], version=v, session=session)
         rep_date = _parse_target_date(text)
+        # The "SUMMARY FOR ..." date corresponds to the day being summarized (target_date).
         if rep_date != target_date:
             continue
         max_f = _parse_yesterday_max(text)

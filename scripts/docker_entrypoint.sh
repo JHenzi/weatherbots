@@ -8,7 +8,7 @@ mkdir -p Data/logs
 # Make it obvious the container is alive, even before the first cron run.
 echo "weather-trader container started: $(date -Is)" | tee -a /app/Data/logs/container.log
 touch /app/Data/logs/trade.cron.log /app/Data/logs/calibrate.cron.log
-touch /app/Data/logs/hourly_pulse.cron.log
+touch /app/Data/logs/intraday_pulse.cron.log
 
 # Optional: run once on startup (disabled by default).
 WT_RUN_TRADE_ON_START="${WT_RUN_TRADE_ON_START:-false}"
