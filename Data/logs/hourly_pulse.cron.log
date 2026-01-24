@@ -1,3 +1,6 @@
 usage: hourly_pulse.py [-h] --trade-date TRADE_DATE [--out-csv OUT_CSV]
                        [--weights-json WEIGHTS_JSON]
 hourly_pulse.py: error: the following arguments are required: --trade-date
+usage: hourly_pulse.py [-h] --trade-date TRADE_DATE [--out-csv OUT_CSV]
+                       [--weights-json WEIGHTS_JSON]
+hourly_pulse.py: error: the following arguments are required: --trade-date

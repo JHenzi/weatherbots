@@ -20,6 +20,16 @@ def _read_csv(path: str) -> list[dict[str, str]]:
         return [row for row in r if row]
 
 
+def _file_mtime_iso(path: str) -> str:
+    if not path or not os.path.exists(path):
+        return ""
+    try:
+        ts = float(os.path.getmtime(path))
+        return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except Exception:
+        return ""
+
+
 def _safe_int(x: Any, default: int = 0) -> int:
     try:
         return int(float(str(x).strip()))
@@ -54,6 +64,28 @@ def _parse_iso(ts: str) -> dt.datetime | None:
         return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+def _fmt_ts_local(ts: str, tz: dt.tzinfo) -> str:
+    """
+    Format an ISO timestamp string in the provided timezone.
+    Input timestamps are expected to be UTC ISO (often with 'Z').
+    """
+    t = _parse_iso(ts)
+    if t is None:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    try:
+        lt = t.astimezone(tz)
+    except Exception:
+        lt = t
+    # Example: 2026-01-23 16:26:18 EST
+    try:
+        z = lt.tzname() or ""
+    except Exception:
+        z = ""
+    return (lt.strftime("%Y-%m-%d %H:%M:%S") + (f" {z}" if z else "")).strip()
 
 
 def _hourly_trailing_stats(
@@ -167,12 +199,11 @@ def _next_daily(now: dt.datetime, hour: int, minute: int) -> dt.datetime:
 
 def _get_tz() -> dt.tzinfo:
     tzname = os.getenv("TZ", "").strip()
-    if not tzname:
-        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
     try:
         from zoneinfo import ZoneInfo
 
-        return ZoneInfo(tzname)
+        # Default to ET for consistent operational display.
+        return ZoneInfo(tzname) if tzname else ZoneInfo("America/New_York")
     except Exception:
         return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
 
@@ -219,12 +250,14 @@ def _tabulate(headers: list[str], rows: list[list[Any]], width: int) -> list[str
 
 def _render(env: str, limit: int) -> dict[str, Any]:
     pred_path = "Data/predictions_latest.csv"
+    pred_hist_path = "Data/predictions_history.csv"
     trades_path = "Data/trades_history.csv"
     decisions_path = "Data/decisions_history.csv"
     eval_path = "Data/eval_history.csv"
     hourly_path = "Data/hourly_forecasts.csv"
 
     preds = _read_csv(pred_path)
+    pred_hist = _read_csv(pred_hist_path)
     trades = _read_csv(trades_path)
     decisions = _read_csv(decisions_path)
     evals = _read_csv(eval_path)
@@ -270,10 +303,52 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         )
 
     # Latest predictions table
+    # Also try to determine the most recent run timestamp for these predictions by
+    # looking up matching rows in predictions_history.csv (which includes run_ts).
+    trade_date = ""
+    if preds:
+        trade_date = (preds[0].get("date") or "").strip()
+
+    pred_run_ts_by_city: dict[str, str] = {}
+    pred_run_ts_overall_dt: dt.datetime | None = None
+    pred_run_ts_overall_str: str = ""
+    if trade_date and pred_hist:
+        # First try matching the requested env; if nothing matches, fall back to any env.
+        for pass_env in (env, ""):
+            best_by_city: dict[str, dt.datetime] = {}
+            best_overall: dt.datetime | None = None
+            for r in pred_hist:
+                if (r.get("date") or "").strip() != trade_date:
+                    continue
+                if pass_env and (r.get("env") or "").strip() != pass_env:
+                    continue
+                city = (r.get("city") or "").strip()
+                if not city:
+                    continue
+                t = _parse_iso(r.get("run_ts", ""))
+                if t is None:
+                    continue
+                prev = best_by_city.get(city)
+                if prev is None or t > prev:
+                    best_by_city[city] = t
+                if best_overall is None or t > best_overall:
+                    best_overall = t
+
+            if best_by_city:
+                pred_run_ts_by_city = {
+                    c: best_by_city[c].isoformat(timespec="seconds").replace("+00:00", "Z") for c in best_by_city
+                }
+                pred_run_ts_overall_dt = best_overall
+                pred_run_ts_overall_str = (
+                    "" if best_overall is None else best_overall.isoformat(timespec="seconds").replace("+00:00", "Z")
+                )
+                break
+
     pred_rows = []
     for p in preds:
         pred_rows.append(
             [
+                pred_run_ts_by_city.get((p.get("city") or "").strip(), ""),
                 p.get("date", ""),
                 p.get("city", ""),
                 f"{_safe_float(p.get('tmax_predicted'), 0.0):.2f}" if p.get("tmax_predicted") else "",
@@ -283,9 +358,6 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         )
 
     # Hourly trailing average of mean_forecast (Temporal Stability Engine)
-    trade_date = ""
-    if preds:
-        trade_date = (preds[0].get("date") or "").strip()
     if not trade_date and hourly:
         # fallback to most recent trade_date in hourly file
         trade_date = max((r.get("trade_date") or "").strip() for r in hourly)
@@ -388,6 +460,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
 
     files = {
         "predictions_latest": count_rows(pred_path),
+        "predictions_history": count_rows(pred_hist_path),
         "trades_history": count_rows(trades_path),
         "decisions_history": count_rows(decisions_path),
         "eval_history": count_rows(eval_path),
@@ -396,6 +469,8 @@ def _render(env: str, limit: int) -> dict[str, Any]:
 
     return {
         "files": files,
+        "pred_latest_mtime": _file_mtime_iso(pred_path),
+        "pred_run_ts_overall": pred_run_ts_overall_str,
         "pred_table": pred_rows,
         "trailing_table": trailing_rows,
         "trade_table": trade_rows,
@@ -430,9 +505,14 @@ def main():
             stdscr.erase()
 
             payload = _render(args.env, int(args.limit))
-            now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            tz = _get_tz()
+            now_local = dt.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+            now_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
-            header = f"weather-trader status  env={args.env}  refresh={args.interval:.1f}s  now={now}   (q to quit)"
+            header = (
+                f"weather-trader status  env={args.env}  refresh={args.interval:.1f}s  "
+                f"now={now_local} {getattr(tz, 'key', str(tz))}  (utc={now_utc})   (q to quit)"
+            )
             try:
                 stdscr.addstr(0, 0, header[: max(0, w - 1)])
             except Exception:
@@ -440,6 +520,7 @@ def main():
             file_line = (
                 "files: "
                 f"preds={payload['files']['predictions_latest']}, "
+                f"pred_hist={payload['files']['predictions_history']}, "
                 f"trades={payload['files']['trades_history']}, "
                 f"decisions={payload['files']['decisions_history']}, "
                 f"eval={payload['files']['eval_history']}, "
@@ -451,10 +532,29 @@ def main():
             except Exception:
                 pass
 
-            y = 3
+            pred_ts_line = (
+                "predictions: "
+                + (
+                    f"run_ts={_fmt_ts_local(payload.get('pred_run_ts_overall',''), tz)}, "
+                    if payload.get("pred_run_ts_overall")
+                    else ""
+                )
+                + (
+                    f"latest_mtime={_fmt_ts_local(payload.get('pred_latest_mtime',''), tz)}"
+                    if payload.get("pred_latest_mtime")
+                    else ""
+                )
+            ).strip().rstrip(",")
+            try:
+                if h > 2 and pred_ts_line:
+                    stdscr.addstr(2, 0, pred_ts_line[: max(0, w - 1)])
+            except Exception:
+                pass
+
+            y = 4
             if h < 6 or w < 20:
                 try:
-                    stdscr.addstr(3, 0, "Terminal too small. Resize and retry. (q to quit)"[: max(0, w - 1)])
+                    stdscr.addstr(4, 0, "Terminal too small. Resize and retry. (q to quit)"[: max(0, w - 1)])
                 except Exception:
                     pass
                 stdscr.refresh()
@@ -479,7 +579,11 @@ def main():
                 time.sleep(max(0.5, float(args.interval)))
                 continue
 
-            pred_lines = _tabulate(["date", "city", "pred(F)", "spread(F)", "conf"], payload["pred_table"], w)
+            pred_rows_local = []
+            for r in payload["pred_table"]:
+                # r[0] is pred_ts (UTC ISO). Convert it to local display.
+                pred_rows_local.append([_fmt_ts_local(r[0], tz)] + list(r[1:]))
+            pred_lines = _tabulate(["pred_ts", "date", "city", "pred(F)", "spread(F)", "conf"], pred_rows_local, w)
             y = _draw_section(stdscr, y, "Latest predictions (what the bot believes):", pred_lines, w)
             if y >= h:
                 stdscr.refresh()

@@ -19,6 +19,17 @@ env = (os.environ.get("WT_ENV_FILTER") or (sys.argv[1] if len(sys.argv) > 1 else
 limit = int(sys.argv[2]) if len(sys.argv) > 2 else 10
 city_filter = (sys.argv[3] if len(sys.argv) > 3 else "").strip().lower()
 
+def _get_tz():
+    tzname = (os.getenv("TZ") or "").strip()
+    try:
+        from zoneinfo import ZoneInfo
+        # Default to ET for consistent operational display.
+        return ZoneInfo(tzname) if tzname else ZoneInfo("America/New_York")
+    except Exception:
+        return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+TZ = _get_tz()
+
 def _truthy(x: Any) -> bool:
     s = str(x or "").strip().lower()
     return s in ("1", "true", "yes", "y")
@@ -38,6 +49,19 @@ def _parse_iso(ts: str) -> dt.datetime | None:
         return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
     except Exception:
         return None
+
+def _fmt_local(ts: str) -> str:
+    t = _parse_iso(ts)
+    if t is None:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    try:
+        lt = t.astimezone(TZ)
+    except Exception:
+        lt = t
+    z = lt.tzname() or ""
+    return (lt.strftime("%Y-%m-%d %H:%M:%S") + (f" {z}" if z else "")).strip()
 
 def _fmt_money(x: float) -> str:
     return f"${x:,.2f}"
@@ -61,6 +85,7 @@ def _print_table(headers: list[str], rows: list[list[Any]]) -> None:
         print(line(row))
 
 pred_path = "Data/predictions_latest.csv"
+pred_hist_path = "Data/predictions_history.csv"
 trades_path = "Data/trades_history.csv"
 decisions_path = "Data/decisions_history.csv"
 eval_path = "Data/eval_history.csv"
@@ -68,6 +93,7 @@ metrics_path = "Data/daily_metrics.csv"
 hourly_path = "Data/hourly_forecasts.csv"
 
 preds = _read_csv(pred_path)
+pred_hist = _read_csv(pred_hist_path)
 trades = _read_csv(trades_path)
 decisions = _read_csv(decisions_path)
 evals = _read_csv(eval_path)
@@ -81,12 +107,13 @@ env_decisions.sort(key=lambda r: (r.get("run_ts") or ""))
 env_evals = [e for e in evals if (e.get("env") or "").strip() == env]
 env_evals.sort(key=lambda r: (r.get("run_ts") or ""))
 
-now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-print(f"weather-trader status  |  env={env}  |  now={now}")
+now_local = dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+now_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+print(f"weather-trader status  |  env={env}  |  now={now_local} {getattr(TZ,'key',str(TZ))}  (utc={now_utc})")
 print()
 
 print("Data files (how many rows):")
-for p in [pred_path, trades_path, decisions_path, eval_path, metrics_path, hourly_path]:
+for p in [pred_path, pred_hist_path, trades_path, decisions_path, eval_path, metrics_path, hourly_path]:
     status = "missing"
     if os.path.exists(p):
         try:
@@ -97,6 +124,44 @@ for p in [pred_path, trades_path, decisions_path, eval_path, metrics_path, hourl
     print(f"- {p}: {status}")
 print()
 
+def _latest_prediction_run_ts(pred_rows: list[dict[str,str]]) -> tuple[str, dict[str,str]]:
+    # Return (overall_run_ts, per_city_run_ts) based on predictions_history.csv.
+    trade_date = (pred_rows[0].get("date") or "").strip() if pred_rows else ""
+    if not trade_date:
+        return ("", {})
+    best_by_city: dict[str, dt.datetime] = {}
+    best_overall: dt.datetime | None = None
+    # First pass: match env; if none found, fall back to any env.
+    for pass_env in (env, ""):
+        best_by_city.clear()
+        best_overall = None
+        for r in pred_hist:
+            if (r.get("date") or "").strip() != trade_date:
+                continue
+            if pass_env and (r.get("env") or "").strip() != pass_env:
+                continue
+            city = (r.get("city") or "").strip()
+            if not city:
+                continue
+            t = _parse_iso(r.get("run_ts",""))
+            if t is None:
+                continue
+            prev = best_by_city.get(city)
+            if prev is None or t > prev:
+                best_by_city[city] = t
+            if best_overall is None or t > best_overall:
+                best_overall = t
+        if best_by_city:
+            break
+    per_city = {c: best_by_city[c].isoformat(timespec="seconds").replace("+00:00","Z") for c in best_by_city}
+    overall = "" if best_overall is None else best_overall.isoformat(timespec="seconds").replace("+00:00","Z")
+    return (overall, per_city)
+
+overall_pred_ts, pred_ts_by_city = _latest_prediction_run_ts(preds)
+if overall_pred_ts:
+    print(f"Latest prediction run_ts (from predictions_history.csv): {_fmt_local(overall_pred_ts)}")
+    print()
+
 print("Latest predictions (what the bot believes):")
 if not preds:
     print("  (none)")
@@ -104,6 +169,7 @@ else:
     rows = []
     for r in preds:
         rows.append([
+            _fmt_local(pred_ts_by_city.get((r.get("city") or "").strip(), "")),
             r.get("date",""),
             r.get("city",""),
             r.get("tmax_predicted",""),
@@ -111,7 +177,7 @@ else:
             r.get("confidence_score",""),
             (r.get("sources_used") or r.get("forecast_sources") or "")[:60],
         ])
-    _print_table(["date","city","predicted_high(F)","disagreement(F)","confidence","sources"], rows)
+    _print_table(["run_ts","date","city","predicted_high(F)","disagreement(F)","confidence","sources"], rows)
 print()
 
 print("Forecast comparison (all cities, side-by-side):")
