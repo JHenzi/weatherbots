@@ -378,6 +378,9 @@ This repo originated from a BU CS542 common-task project. Historical trade logs 
 
 The goal is not just to “predict a temperature”, but to quantify **how much we trust** a forecast and translate that into **position sizing**.
 
+### Forecaster learning improvements
+See `ForecasterLearningImprovements.md` for a concrete roadmap to improve long-run forecaster trust, including better scoring, regime adaptation, uncertainty calibration, and safe rollout.
+
 ### 1) Build a daily evaluation dataset
 For each city + trade date, store:
 - **Predictions**: `tmax_lstm`, `tmax_forecast` (per-provider), `tmax_blend`
