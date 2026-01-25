@@ -391,9 +391,19 @@ def _best_yes_prices_from_orderbook(orderbook_payload: dict) -> dict[str, float 
         p, q = _price_qty(no[-1])
         best_no_bid, best_no_bid_qty = p, q
 
+    next_no_bid = None
+    next_no_bid_qty = None
+    if no and len(no) >= 2:
+        p2, q2 = _price_qty(no[-2])
+        next_no_bid, next_no_bid_qty = p2, q2
+
     yes_ask = None
     if best_no_bid is not None:
         yes_ask = 100 - int(best_no_bid)
+
+    next_yes_ask = None
+    if next_no_bid is not None:
+        next_yes_ask = 100 - int(next_no_bid)
 
     yes_spread = None
     if best_yes_bid is not None and yes_ask is not None:
@@ -413,14 +423,29 @@ def _best_yes_prices_from_orderbook(orderbook_payload: dict) -> dict[str, float 
                 total += int(q)
         ask_qty = total
 
+    next_ask_qty = None
+    if next_no_bid is not None:
+        total2 = 0
+        for lvl in reversed(no):
+            p, q = _price_qty(lvl)
+            if p is None:
+                continue
+            if int(p) != int(next_no_bid):
+                continue
+            if q is not None:
+                total2 += int(q)
+        next_ask_qty = total2 if total2 > 0 else None
+
     return {
         "best_yes_bid": best_yes_bid,
         "best_yes_bid_qty": best_yes_bid_qty,
         "best_no_bid": best_no_bid,
         "best_no_bid_qty": best_no_bid_qty,
         "yes_ask": yes_ask,
+        "next_yes_ask": next_yes_ask,
         "yes_spread": yes_spread,
         "ask_qty": ask_qty,
+        "next_ask_qty": next_ask_qty,
     }
 
 
@@ -463,8 +488,10 @@ def get_yes_pricing(
         "best_no_bid": no_bid,
         "best_no_bid_qty": None,
         "yes_ask": yes_ask,
+        "next_yes_ask": None,
         "yes_spread": (None if yes_ask is None or yes_bid is None else int(yes_ask) - int(yes_bid)),
         "ask_qty": int(fallback_qty),
+        "next_ask_qty": None,
     }
     return (px, "market")
 
@@ -963,6 +990,12 @@ def _parse_args():
         default=0.15,
         help="Soft threshold used to downscale sizing when selected bucket probability is low (default 0.15).",
     )
+    p.add_argument(
+        "--max-take-fraction",
+        type=float,
+        default=1.0,
+        help="Max fraction of displayed best-ask depth to take (default 1.0 = prioritize liquidity).",
+    )
     # sigma is now computed per city as max(current_spread, historical_MAE), with sigma_floor as fallback
     p.add_argument("--sigma-floor", type=float, default=2.0, help="Fallback sigma when city metadata is unavailable")
     p.add_argument("--sigma-mult", type=float, default=1.0, help="Legacy (ignored when city metadata is present)")
@@ -1307,25 +1340,8 @@ if __name__ == "__main__":
             except Exception:
                 current_sigma = None
 
-        sigma_scale = _sigma_size_scale(sigma=float(current_sigma or 999.0), sigma_cap=2.5) if current_sigma is not None else 0.5
-
-        # Penalty for missing/partial/non-monotonic signals (still allow trading, just smaller).
-        trend_scale = 1.0
-        if not gate_ok:
-            if gate is None:
-                trend_scale = 0.25
-            else:
-                r = gate_reason.lower()
-                if "sigma_too_high" in r:
-                    trend_scale = 0.25
-                elif "non_monotonic" in r:
-                    trend_scale = 0.50
-                elif "insufficient_intraday" in r:
-                    trend_scale = 0.50 if gate_n >= 2 else 0.25
-                else:
-                    trend_scale = 0.50
-
-        size_scale = max(0.10, min(1.0, float(sigma_scale) * float(trend_scale)))
+        # IMPORTANT: intraday is informational only. We do NOT apply dynamic sizing based on it.
+        size_scale = 1.0
         intraday_tag = (
             f"intraday_ok;{gate_reason}"
             if gate_ok
@@ -1335,7 +1351,7 @@ if __name__ == "__main__":
             "Intraday signal: "
             + f"ok={gate_ok} n={gate_n} trend={gate_trend or 'n/a'} "
             + (f"sigma={current_sigma:.3f} " if current_sigma is not None else "sigma=? ")
-            + f"size_scale={size_scale:.3f}"
+            + "(no sizing impact)"
         )
 
         event_payload = get_event(client, event_ticker)
@@ -1343,221 +1359,56 @@ if __name__ == "__main__":
         if not markets:
             raise RuntimeError(f"No markets returned for event {event_ticker}")
 
-        # New sigma: max(current_spread, historical_MAE). If metadata missing, fall back to sigma_floor.
+        # Market selection MUST be forecast-driven: pick the bucket implied by the prediction (mu).
+        idx = find_interval(float(pred), markets)
+        chosen_market = markets[idx]
+        subtitle = (chosen_market.get("subtitle") or "") if isinstance(chosen_market, dict) else ""
+        lo, hi = _parse_subtitle_to_range(subtitle)
+        ticker = chosen_market.get("ticker") if isinstance(chosen_market, dict) else None
+        if not ticker:
+            raise RuntimeError(f"Chosen market missing ticker (city={city} trade_date={trade_dt_str})")
+
+        px, px_src = get_yes_pricing(
+            client,
+            str(ticker),
+            orderbook_depth=args.orderbook_depth,
+            fallback_qty=min(int(args.max_contracts_per_order), 5),
+        )
+        px["pricing_source"] = px_src
+        yes_ask = px.get("yes_ask")
+        if yes_ask is None:
+            print("SKIP: could not determine YES ask for chosen bucket")
+            continue
+        yes_ask = int(yes_ask)
+        yes_spread = px.get("yes_spread")
+        yes_spread = None if yes_spread is None else int(yes_spread)
+        yes_bid = px.get("best_yes_bid")
+        ask_qty = px.get("ask_qty")
+        ask_qty_i = None if ask_qty is None else int(ask_qty)
+        next_yes_ask = px.get("next_yes_ask")
+        next_yes_ask_i = None if next_yes_ask is None else int(next_yes_ask)
+
+        # Compute the model probability of the chosen bucket for logging (NOT selection).
         cur_spread = float(spread_f or 0.0)
         hist_mae = city_mae.get(city)
-        if hist_mae is None:
-            sigma = max(float(args.sigma_floor), float(args.sigma_mult) * cur_spread)
-        else:
-            sigma = max(cur_spread, float(hist_mae))
-        selection_mode = str(getattr(args, "selection_mode", "closest") or "closest").strip().lower()
-        best = None  # (score, market_dict, pricing_dict, p_yes, lo, hi, edge_prob, market_prob, ev_cents)
-        best_any = None  # same tuple as best, but without price/spread/ev filters
-        for m in markets:
-            subtitle = (m.get("subtitle") or "") if isinstance(m, dict) else ""
-            lo, hi = _parse_subtitle_to_range(subtitle)
-            if lo is None and hi is None:
-                continue
-            p_yes = bucket_probability(lo=lo, hi=hi, mu=float(pred), sigma=float(sigma))
-            if p_yes <= 0.0:
-                continue
-
-            ticker = m.get("ticker")
-            if not ticker:
-                continue
-
-            px, px_src = get_yes_pricing(
-                client,
-                ticker,
-                orderbook_depth=args.orderbook_depth,
-                fallback_qty=min(int(args.max_contracts_per_order), 5),
-            )
-            px["pricing_source"] = px_src
-            yes_ask = px.get("yes_ask")
-            yes_spread = px.get("yes_spread")
-            ask_qty = px.get("ask_qty")
-            yes_bid = px.get("best_yes_bid")
-
-            if yes_ask is None:
-                continue
-            yes_ask = int(yes_ask)
-            yes_spread = None if yes_spread is None else int(yes_spread)
-
-            if yes_ask < 1 or yes_ask > 99:
-                continue
-            if yes_spread is not None and yes_spread < 0:
-                continue
-            if ask_qty is None or int(ask_qty) <= 0:
-                continue
-
-            market_prob = yes_ask / 100.0
-            edge_prob = float(p_yes) - float(market_prob)
-            ev_cents = float(100.0 * float(p_yes) - float(yes_ask))
-
-            # Selection scoring:
-            # - closest: prefer containing bucket; otherwise nearest bucket to mu
-            # - max_prob: prefer highest model probability bucket
-            # - best_ev: prefer highest EV bucket
-            if selection_mode == "max_prob":
-                score = float(p_yes)
-            elif selection_mode == "best_ev":
-                score = float(ev_cents)
-            else:
-                # distance from mu to the bucket range (0 if contained)
-                mu = float(pred)
-                if lo is None and hi is None:
-                    continue
-                if lo is None:
-                    dist = max(0.0, mu - float(hi)) if hi is not None else float("inf")
-                elif hi is None:
-                    dist = max(0.0, float(lo) - mu)
-                else:
-                    if mu < float(lo):
-                        dist = float(lo) - mu
-                    elif mu > float(hi):
-                        dist = mu - float(hi)
-                    else:
-                        dist = 0.0
-                score = -float(dist)
-            cand = (score, m, px, float(p_yes), lo, hi, float(edge_prob), float(market_prob), float(ev_cents))
-
-            if best_any is None or cand[0] > best_any[0]:
-                best_any = cand
-
-            # Apply conservative filters for actual trading (pricing/liquidity)
-            if yes_ask > int(args.yes_price):
-                continue
-            if yes_spread is not None and yes_spread > int(args.max_yes_spread_cents):
-                continue
-            # Only enforce EV threshold in EV-selection mode.
-            if selection_mode == "best_ev":
-                if ev_cents < float(args.min_ev_cents):
-                    continue
-
-            if best is None or cand[0] > best[0]:
-                best = cand
-
-        if best is None:
-            print("SKIP: no qualifying market passed price/spread/liquidity filters")
-            reason = "no_qualifying_market"
-            if best_any is not None:
-                score, bm, bpx, bp, blo, bhi, bedge, bmprob, bev = best_any
-                bt = bm.get("ticker")
-                bask = int(bpx.get("yes_ask") or 0)
-                bspr = int(bpx.get("yes_spread") or 0)
-                bqty = int(bpx.get("ask_qty") or 0)
-                src = bpx.get("pricing_source") or ""
-                reason = (
-                    f"no_qualifying_market;mode={selection_mode};best={bt};ask={bask};spr={bspr};qty={bqty};"
-                    + f"p={float(bp):.3f};ev={float(bev):.2f};score={float(score):.4f};px={src}"
-                )
-            if args.decisions_log:
-                _append_decision(
-                    args.decisions_log,
-                    {
-                        "run_ts": _now_iso(),
-                        "env": args.env,
-                        "trade_date": trade_dt_str,
-                        "city": city,
-                        "series_ticker": series,
-                        "event_ticker": event_ticker,
-                        "pred_tmax_f": f"{pred:.4f}",
-                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
-                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
-                        "decision": "skip",
-                        "reason": reason,
-                    },
-                )
-            if args.eval_log:
-                chosen_ticker = ""
-                chosen_subtitle = ""
-                bucket_lo = ""
-                bucket_hi = ""
-                model_prob = ""
-                yes_ask = ""
-                yes_bid = ""
-                yes_spread = ""
-                ask_qty = ""
-                market_prob = ""
-                edge_prob = ""
-                ev_cents = ""
-                if best_any is not None:
-                    ev_c, bm, bpx, bp, blo, bhi, bedge, bmprob = best_any
-                    chosen_ticker = bm.get("ticker") or ""
-                    chosen_subtitle = bm.get("subtitle") or ""
-                    bucket_lo = "" if blo is None else f"{blo:.4f}"
-                    bucket_hi = "" if bhi is None else f"{bhi:.4f}"
-                    model_prob = f"{bp:.6f}"
-                    yes_ask = int(bpx.get("yes_ask") or 0)
-                    yes_bid = "" if bpx.get("best_yes_bid") is None else int(bpx.get("best_yes_bid"))
-                    yes_spread = int(bpx.get("yes_spread") or 0)
-                    ask_qty = int(bpx.get("ask_qty") or 0)
-                    market_prob = f"{bmprob:.6f}"
-                    edge_prob = f"{bedge:.6f}"
-                    ev_cents = f"{ev_c:.4f}"
-                _append_eval_row(
-                    args.eval_log,
-                    {
-                        "run_ts": _now_iso(),
-                        "env": args.env,
-                        "trade_date": trade_dt_str,
-                        "city": city,
-                        "series_ticker": series,
-                        "event_ticker": event_ticker,
-                        "decision": "skip",
-                        "reason": reason,
-                        "mu_tmax_f": f"{pred:.4f}",
-                        "sigma_f": f"{sigma:.4f}",
-                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
-                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
-                        "tmax_open_meteo": row.get("tmax_open_meteo", ""),
-                        "tmax_visual_crossing": row.get("tmax_visual_crossing", ""),
-                        "tmax_tomorrow": row.get("tmax_tomorrow", ""),
-                        "tmax_weatherapi": row.get("tmax_weatherapi", ""),
-                        "tmax_lstm": row.get("tmax_lstm", ""),
-                        "sources_used": row.get("sources_used", ""),
-                        "weights_used": row.get("weights_used", ""),
-                        "chosen_market_ticker": chosen_ticker,
-                        "chosen_market_subtitle": chosen_subtitle,
-                        "bucket_lo": bucket_lo,
-                        "bucket_hi": bucket_hi,
-                        "model_prob_yes": model_prob,
-                        "yes_ask": yes_ask,
-                        "yes_bid": yes_bid,
-                        "yes_spread": yes_spread,
-                        "ask_qty": ask_qty,
-                        "market_prob_yes": market_prob,
-                        "edge_prob": edge_prob,
-                        "ev_cents": ev_cents,
-                        "send_orders": bool(args.send_orders),
-                    },
-                )
-            continue
-
-        score, chosen_market, px, p_yes, lo, hi, edge_prob, market_prob, ev_cents = best
-        ticker = chosen_market.get("ticker")
-        subtitle = chosen_market.get("subtitle", "")
-        yes_ask = int(px.get("yes_ask") or 0)
-        yes_spread = int(px.get("yes_spread") or 0)
-        yes_bid = px.get("best_yes_bid")
-        ask_qty = int(px.get("ask_qty") or 0)
+        sigma = max(float(args.sigma_floor), float(args.sigma_mult) * cur_spread) if hist_mae is None else max(cur_spread, float(hist_mae))
+        p_yes = bucket_probability(lo=lo, hi=hi, mu=float(pred), sigma=float(sigma))
+        market_prob = float(yes_ask) / 100.0
+        edge_prob = float(p_yes) - float(market_prob)
+        ev_cents = float(100.0 * float(p_yes) - float(yes_ask))
+        selection_mode = "forecast_bucket"
 
         print(
-            f"Selection(mode={selection_mode}): score={float(score):.4f} model_p={float(p_yes):.3f} "
-            f"market_p~{float(market_prob):.3f} edge={float(edge_prob):+.3f} ev_cents={float(ev_cents):.2f} "
-            f"(ask={yes_ask}¢ spr={yes_spread}¢ qty={ask_qty})"
+            f"Selected bucket from forecast(mu): '{subtitle}' (mu={float(pred):.2f}) "
+            + f"→ market={ticker} ask={yes_ask}¢ "
+            + (f"depth={ask_qty_i} " if ask_qty_i is not None else "")
+            + f"(px={px_src})"
         )
 
-        # Soft probability sizing: if the chosen bucket has low probability, trade smaller.
-        prob_scale = 1.0
-        try:
-            min_p = float(getattr(args, "min_model_prob", 0.0) or 0.0)
-            if min_p > 1e-9:
-                prob_scale = min(1.0, float(p_yes) / float(min_p))
-        except Exception:
-            prob_scale = 1.0
-        prob_scale = max(0.10, min(1.0, float(prob_scale)))
-        size_scale = max(0.10, min(1.0, float(size_scale) * float(prob_scale)))
+        # Liquidity warning (only informational). If we tried to buy more than displayed depth,
+        # check whether the next level implies a >10% worse ask.
+        if ask_qty_i is not None and ask_qty_i > 0:
+            pass
 
         remaining_total = max(0.0, float(effective_total_cap) - float(spent_total_dollars))
         remaining_city_budget = max(0.0, float(city_budgets.get(city, 0.0)) - float(spent_by_city.get(city, 0.0)))
@@ -1566,17 +1417,24 @@ if __name__ == "__main__":
         count_cap_budget = int(max_city // cost_per_contract) if cost_per_contract > 0 else 0
 
         desired = int(args.count) if int(args.count) > 0 else 10**9
-        count = min(desired, int(args.max_contracts_per_order), ask_qty, count_cap_budget)
-        # Dynamic sizing: scale down using intraday signal (after all caps, before price-impact cap).
-        count = int(math.floor(float(count) * float(size_scale)))
-        # Price impact cap: don't take more than 25% of the resting best-ask size.
-        max_take = max(1, int(math.floor(float(ask_qty) * 0.25)))
-        count = min(int(count), int(max_take))
+        # Place the position implied by budget (and max_contracts_per_order). Do NOT cap by ask_qty.
+        count = min(desired, int(args.max_contracts_per_order), count_cap_budget)
+
+        # Warn if this size likely exceeds current displayed depth and would require >10% worse price to fill immediately.
+        if ask_qty_i is not None and ask_qty_i > 0 and int(count) > int(ask_qty_i):
+            impact_pct = None
+            if next_yes_ask_i is not None and yes_ask > 0:
+                impact_pct = float(next_yes_ask_i - yes_ask) / float(yes_ask)
+            if impact_pct is not None and impact_pct >= 0.10:
+                print(
+                    f"LIQUIDITY WARNING: desired_count={count} > depth_at_best={ask_qty_i}. "
+                    f"Next level ask≈{next_yes_ask_i}¢ implies +{impact_pct*100:.1f}% price move (>10%). "
+                    f"Order may not fully fill without moving price."
+                )
         if count < 1:
             print(
-                "SKIP: budget/liquidity caps reduce count to 0 "
-                + f"(ask_qty={ask_qty} yes_ask={yes_ask} budget_cap={count_cap_budget} "
-                + f"size_scale={size_scale:.3f} max_take={max_take})"
+                "SKIP: budget caps reduce count to 0 "
+                + f"(yes_ask={yes_ask} budget_cap={count_cap_budget})"
             )
             if args.decisions_log:
                 _append_decision(
@@ -1594,8 +1452,7 @@ if __name__ == "__main__":
                         "decision": "skip",
                         "reason": (
                             "count_zero_after_caps;"
-                            + f"ask_qty={ask_qty};yes_ask={yes_ask};budget_cap={count_cap_budget};"
-                            + f"size_scale={size_scale:.4f};max_take={max_take}"
+                            + f"yes_ask={yes_ask};budget_cap={count_cap_budget}"
                         ),
                     },
                 )
@@ -1660,8 +1517,8 @@ if __name__ == "__main__":
                     "decision": "trade",
                     "reason": (
                         (reason + ";" if reason else "")
-                        + f"{intraday_tag};mode={selection_mode};p={float(p_yes):.3f};ev={float(ev_cents):.2f};size_scale={size_scale:.4f};"
-                        + f"ticker={ticker};ask={yes_ask};ev={ev_cents:.2f}"
+                        + f"{intraday_tag};mode={selection_mode};p={float(p_yes):.3f};market_p={market_prob:.3f};"
+                        + f"ticker={ticker};ask={yes_ask}"
                     ),
                 },
             )

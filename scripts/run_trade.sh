@@ -47,8 +47,6 @@ ARGS=(
   --eval-log Data/eval_history.csv
   --min-confidence 0.5
   --max-spread 3.0
-  --min-ev-cents 3
-  --max-yes-spread-cents 6
   --orderbook-depth 25
   --sigma-floor 2.0
   --sigma-mult 1.0

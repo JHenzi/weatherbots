@@ -96,7 +96,7 @@ def _intraday_window_stats(
     window: int,
 ) -> dict[str, Any] | None:
     window = max(1, int(window))
-    pts: list[tuple[dt.datetime, float]] = []
+    pts: list[tuple[dt.datetime, float, float | None]] = []
     for r in rows:
         if (r.get("city") or "").strip() != city:
             continue
@@ -111,12 +111,19 @@ def _intraday_window_stats(
         v = _safe_float(v_s, default=float("nan"))
         if v != v:  # NaN
             continue
-        pts.append((t, float(v)))
+        sig_s = (r.get("current_sigma") or "").strip()
+        sig = None
+        if sig_s:
+            try:
+                sig = float(sig_s)
+            except Exception:
+                sig = None
+        pts.append((t, float(v), sig))
     if not pts:
         return None
     pts.sort(key=lambda x: x[0])
     pts = pts[-window:]
-    xs = [v for _, v in pts]
+    xs = [v for _, v, _ in pts]
     n = len(xs)
     avg = sum(xs) / n if n else None
     drift = None
@@ -126,12 +133,14 @@ def _intraday_window_stats(
     nondecreasing = bool(diffs) and all(d >= 0 for d in diffs) and any(d > 0 for d in diffs)
     nonincreasing = bool(diffs) and all(d <= 0 for d in diffs) and any(d < 0 for d in diffs)
     trend = "increasing" if nondecreasing else ("decreasing" if nonincreasing else "non_monotonic")
+    last_sigma = pts[-1][2]
     return {
         "n": n,
         "avg": avg,
         "last": xs[-1],
         "drift": drift,
         "trend": trend,
+        "last_sigma": last_sigma,
         "last_ts": pts[-1][0].isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
 
@@ -371,7 +380,8 @@ def _render(env: str, limit: int) -> dict[str, Any]:
             else None
         )
         if st is None:
-            trailing_rows.append([city, trade_date or "", "0", "", "", "", ""])
+            # Columns: city, trade_date, n, last(F), trail_avg(F), sigma(F), trend, drift(F)
+            trailing_rows.append([city, trade_date or "", "0", "", "", "", "", ""])
             continue
         trailing_rows.append(
             [
@@ -380,6 +390,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
                 str(st["n"]),
                 f"{float(st['last']):.2f}",
                 f"{float(st['avg']):.2f}" if st.get("avg") is not None else "",
+                (f"{float(st['last_sigma']):.2f}" if st.get("last_sigma") is not None else ""),
                 str(st.get("trend") or ""),
                 f"{float(st['drift']):+.2f}" if st.get("drift") is not None else "",
             ]
@@ -604,13 +615,17 @@ def main():
                 preds_latest = [r for r in preds_latest if (r.get("city") or "").strip().lower() == city_focus]
 
             def f(row: dict[str, str], key: str) -> str:
+                # City is a string; everything else is numeric.
+                if key == "city":
+                    return (row.get("city") or "").strip()
                 v = (row.get(key) or "").strip()
                 return f"{_safe_float(v, 0.0):.2f}" if v else ""
 
             # Choose columns based on available width.
-            all_cols = [
+            all_cols_all = [
                 ("city", "city"),
                 ("cons", "tmax_predicted"),
+                ("goog", "tmax_google_weather"),
                 ("om", "tmax_open_meteo"),
                 ("vc", "tmax_visual_crossing"),
                 ("tom", "tmax_tomorrow"),
@@ -622,6 +637,18 @@ def main():
                 ("spr", "spread_f"),
                 ("conf", "confidence_score"),
             ]
+
+            # Only show provider columns that actually exist / have values in this file.
+            def _has_any(key: str) -> bool:
+                if key == "city":
+                    return True
+                for rr in preds_latest:
+                    v = (rr.get(key) or "").strip()
+                    if v:
+                        return True
+                return False
+
+            all_cols = [c for c in all_cols_all if _has_any(c[1])]
             # Always include these.
             base = [all_cols[0], all_cols[1], all_cols[-2], all_cols[-1]]  # city, cons, spr, conf
             optional = [c for c in all_cols[2:-2]]  # sources
@@ -650,7 +677,7 @@ def main():
                 continue
 
             trailing_lines = _tabulate(
-                ["city", "trade_date", "n", "last(F)", "trail_avg(F)", "trend", "drift(F)"],
+                ["city", "trade_date", "n", "last(F)", "trail_avg(F)", "sigma(F)", "trend", "drift(F)"],
                 payload.get("trailing_table") or [],
                 w,
             )
