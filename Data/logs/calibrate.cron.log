@@ -3,3 +3,11 @@ SKIP truth for city=tx date=2026-01-23: Could not find CLI report for tx date=20
 SKIP truth for city=fl date=2026-01-23: Could not find CLI report for fl date=2026-01-23 within 50 versions
 Wrote 1 rows to Data/source_performance.csv
 Wrote weights to Data/weights.json
+SKIP truth for city=tx date=2026-01-24: Could not find CLI report for tx date=2026-01-24 within 50 versions
+SKIP truth for city=fl date=2026-01-24: Could not find CLI report for fl date=2026-01-24 within 50 versions
+Wrote 18 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json
+SKIP truth for city=tx date=2026-01-24: Could not find CLI report for tx date=2026-01-24 within 50 versions
+SKIP truth for city=fl date=2026-01-24: Could not find CLI report for fl date=2026-01-24 within 50 versions
+Wrote 18 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json

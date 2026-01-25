@@ -1,22 +1,61 @@
 {
   "fl": {
-    "as_of": "2026-01-23",
-    "weights": {},
+    "as_of": "2026-01-24",
+    "weights": {
+      "consensus": 0.09612778369691297,
+      "lstm": 0.052977619671501046,
+      "open-meteo": 0.038038347662251934,
+      "openweathermap": 0.16798073085462029,
+      "pirateweather": 0.1922375481278401,
+      "tomorrow": 0.034501902641498355,
+      "visual-crossing": 0.3199025038395388,
+      "weather.gov": 0.03213800486130373,
+      "weatherapi": 0.0660955586445328
+    },
     "window_days": 14
   },
   "il": {
-    "as_of": "2026-01-23",
-    "weights": {},
+    "as_of": "2026-01-24",
+    "weights": {
+      "consensus": 0.19572916634118928,
+      "lstm": 0.00033801729479509434,
+      "open-meteo": 0.03483558648992357,
+      "openweathermap": 0.01777325841322631,
+      "pirateweather": 0.018094939821078713,
+      "tomorrow": 0.04422689020740148,
+      "weather.gov": 0.6881103504182435,
+      "weatherapi": 0.0008917910141420435
+    },
     "window_days": 14
   },
   "ny": {
-    "as_of": "2026-01-23",
-    "weights": {},
+    "as_of": "2026-01-24",
+    "weights": {
+      "consensus": 0.014592309530646294,
+      "lstm": 0.0007022628660218113,
+      "open-meteo": 0.0006560796795410584,
+      "openweathermap": 0.6382643639798242,
+      "pirateweather": 0.2112776014374949,
+      "tomorrow": 0.039891522748739014,
+      "visual-crossing": 0.03118831961386178,
+      "weather.gov": 0.05003992613601822,
+      "weatherapi": 0.013387614007852678
+    },
     "window_days": 14
   },
   "tx": {
-    "as_of": "2026-01-23",
-    "weights": {},
+    "as_of": "2026-01-24",
+    "weights": {
+      "consensus": 0.43034924670626395,
+      "lstm": 0.013072415283508802,
+      "open-meteo": 0.0014221760611697813,
+      "openweathermap": 0.006704231709943889,
+      "pirateweather": 0.00620242265351057,
+      "tomorrow": 0.008556345829038556,
+      "visual-crossing": 0.5085043397557804,
+      "weather.gov": 0.00968642212412756,
+      "weatherapi": 0.015502399876656445
+    },
     "window_days": 14
   }
 }

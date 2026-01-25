@@ -96,8 +96,17 @@ def _load_performance_window(perf_path: str, *, city: str, source: str, start: d
 def _compute_weights(perf_path: str, *, trade_date: dt.date, window_days: int) -> dict:
     # Weight per city per source: w = 1/MAE^2 over last N days.
     weights: dict[str, dict] = {}
-    start = trade_date - dt.timedelta(days=window_days)
-    end = trade_date - dt.timedelta(days=1)
+    # IMPORTANT:
+    # We compute weights from the most recent *available truth*. This script is run for
+    # "yesterday" (the event date being graded), so we SHOULD include that date in the window.
+    #
+    # Prior behavior excluded `trade_date` (end=trade_date-1), which meant the freshly
+    # calibrated day (including per-provider forecasts) had zero influence until *tomorrow*.
+    #
+    # Window is inclusive: [trade_date - (window_days-1), trade_date]
+    window_days = max(1, int(window_days))
+    start = trade_date - dt.timedelta(days=window_days - 1)
+    end = trade_date
     for city in ("ny", "il", "tx", "fl"):
         ws: dict[str, float] = {}
         for source, _ in SOURCES:

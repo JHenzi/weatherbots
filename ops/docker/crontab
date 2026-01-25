@@ -21,3 +21,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Nightly settlement + metrics rollups for yesterday (default 3:15am local container time)
 15 3 * * * cd /app && /bin/bash /app/scripts/run_settle.sh 2>&1 | tee -a /app/Data/logs/settle.cron.log
 
+# Retry window (fault tolerance): some CLIs are published later (e.g., MIA can be ~4am local,
+# AUS is CST, etc.). Re-run later in the morning to pick up late-issued reports.
+30 6 * * * cd /app && /bin/bash /app/scripts/run_calibrate.sh 2>&1 | tee -a /app/Data/logs/calibrate.cron.log
+15 7 * * * cd /app && /bin/bash /app/scripts/run_settle.sh 2>&1 | tee -a /app/Data/logs/settle.cron.log
+
