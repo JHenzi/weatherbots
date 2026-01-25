@@ -1,0 +1,49 @@
+[trade] 2026-01-25T03:00:01+00:00 trade_date=2026-01-25 (final 22:00 fetch)
+[trade] 2026-01-25T03:00:02+00:00 trade_date=2026-01-25 (final 22:00 fetch)
+[intraday_pulse.py] done start=2026-01-24T22:00:02.840564-05:00 trade_date=2026-01-25 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse.py] done start=2026-01-24T22:00:02.520257-05:00 trade_date=2026-01-25 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Traceback (most recent call last):
+  File "/app/kalshi_trader.py", line 1073, in <module>
+    client = KalshiHttpClient(
+             ^^^^^^^^^^^^^^^^^
+  File "/app/kalshi_trader.py", line 84, in __init__
+    self.private_key = load_private_key_from_file(private_key_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/kalshi_trader.py", line 46, in load_private_key_from_file
+    with open(file_path, "rb") as key_file:
+         ^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'gooony.txt'
+Traceback (most recent call last):
+  File "/app/kalshi_trader.py", line 1073, in <module>
+    client = KalshiHttpClient(
+             ^^^^^^^^^^^^^^^^^
+  File "/app/kalshi_trader.py", line 84, in __init__
+    self.private_key = load_private_key_from_file(private_key_path)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/kalshi_trader.py", line 46, in load_private_key_from_file
+    with open(file_path, "rb") as key_file:
+         ^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'gooony.txt'
+[trade] 2026-01-24T22:41:00-05:00 trade_date=2026-01-25 (final 22:00 fetch)
+[intraday_pulse.py] done start=2026-01-24T22:41:01.107939-05:00 trade_date=2026-01-25 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Balance: available_cash=$32.65 → per-run cap=$16.32 (min(configured=$50.00, 0.50*balance))
+City budget caps: ny=$1.81, il=$7.26, tx=$1.81, fl=$5.44 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-25 -----------
+SKIP: confidence_score=0.055 < 0.5
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-25 -----------
+Intraday signal: ok=True n=4 trend=increasing sigma=1.326 (no sizing impact)
+Selected bucket from forecast(mu): '18° to 19°' (mu=17.80) → market=KXHIGHCHI-26JAN25-B18.5 ask=30¢ depth=182 (px=orderbook)
+Pred_mean=17.80 | chosen_bucket='18° to 19°' | market=KXHIGHCHI-26JAN25-B18.5
+Order submitted: KXHIGHCHI-26JAN25-B18.5
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-25 -----------
+SKIP: confidence_score=0.000 < 0.5
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-25 -----------
+Intraday signal: ok=True n=4 trend=increasing sigma=1.876 (no sizing impact)
+Selected bucket from forecast(mu): '78° to 79°' (mu=78.49) → market=KXHIGHMIA-26JAN25-B78.5 ask=7¢ depth=17 (px=orderbook)
+LIQUIDITY WARNING: desired_count=77 > depth_at_best=17. Next level ask≈8¢ implies +14.3% price move (>10%). Order may not fully fill without moving price.
+Pred_mean=78.49 | chosen_bucket='78° to 79°' | market=KXHIGHMIA-26JAN25-B78.5
+Order submitted: KXHIGHMIA-26JAN25-B78.5

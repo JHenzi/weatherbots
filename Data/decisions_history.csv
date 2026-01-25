@@ -174,3 +174,7 @@ run_ts,env,trade_date,city,series_ticker,event_ticker,pred_tmax_f,spread_f,confi
 2026-01-24T20:53:04.508049-05:00,prod,2026-01-25,il,KXHIGHCHI,KXHIGHCHI-26JAN25,18.3900,1.3636,1.0000,trade,"intraday_soft;non_monotonic;means=18.38,18.13,18.39,18.39;mode=forecast_bucket;p=0.285;market_p=0.310;ticker=KXHIGHCHI-26JAN25-B18.5;ask=31"
 2026-01-24T20:53:04.519791-05:00,prod,2026-01-25,tx,KXHIGHAUS,KXHIGHAUS-26JAN25,30.8950,3.7744,0.0000,skip,confidence<0.5
 2026-01-24T20:53:04.950021-05:00,prod,2026-01-25,fl,KXHIGHMIA,KXHIGHMIA-26JAN25,76.5300,1.3644,1.0000,trade,"intraday_ok;ok;trend=increasing;means=76.16,76.30,76.53,76.53;sigma=1.3644;mode=forecast_bucket;p=0.573;market_p=0.040;ticker=KXHIGHMIA-26JAN25-T78;ask=4"
+2026-01-24T22:41:07.085406-05:00,prod,2026-01-25,ny,KXHIGHNY,KXHIGHNY-26JAN25,26.0625,2.9176,0.0549,skip,confidence<0.5
+2026-01-24T22:41:07.453837-05:00,prod,2026-01-25,il,KXHIGHCHI,KXHIGHCHI-26JAN25,17.7975,1.3260,1.0000,trade,"intraday_ok;ok;trend=increasing;means=17.70,17.80,17.80,17.80;sigma=1.3260;mode=forecast_bucket;p=0.257;market_p=0.300;ticker=KXHIGHCHI-26JAN25-B18.5;ask=30"
+2026-01-24T22:41:07.840848-05:00,prod,2026-01-25,tx,KXHIGHAUS,KXHIGHAUS-26JAN25,30.2537,3.2205,0.0000,skip,confidence<0.5
+2026-01-24T22:41:08.227881-05:00,prod,2026-01-25,fl,KXHIGHMIA,KXHIGHMIA-26JAN25,78.4875,1.8760,0.7493,trade,"low_ask_depth(17<25);intraday_ok;ok;trend=increasing;means=78.19,78.47,78.47,78.49;sigma=1.8760;mode=forecast_bucket;p=0.154;market_p=0.070;ticker=KXHIGHMIA-26JAN25-B78.5;ask=7"
