@@ -5,8 +5,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ENV_FILTER="${1:-prod}"
-LIMIT="${2:-10}"
-CITY_FILTER="${3:-}"
+# Backwards/forgiving CLI:
+# - Old:  dashboard.sh <env> <limit> [city]
+# - Common mistaken: dashboard.sh <env> <interval> <limit> [city] (mirrors dashboard_live.sh)
+ARG2="${2:-10}"
+ARG3="${3:-}"
+ARG4="${4:-}"
+if [[ "${ARG3}" =~ ^[0-9]+$ ]]; then
+  # Treat as: env interval limit [city]
+  LIMIT="${ARG3}"
+  CITY_FILTER="${ARG4:-}"
+else
+  # Treat as: env limit [city]
+  LIMIT="${ARG2}"
+  CITY_FILTER="${ARG3:-}"
+fi
 
 python - "$ENV_FILTER" "$LIMIT" "$CITY_FILTER" <<'PY'
 import csv
@@ -184,9 +197,10 @@ print("Forecast comparison (all cities, side-by-side):")
 if not preds:
     print("  (none)")
 else:
-    cols = [
+    cols_all = [
         ("city", "city"),
         ("cons", "tmax_predicted"),
+        ("goog", "tmax_google_weather"),
         ("om", "tmax_open_meteo"),
         ("vc", "tmax_visual_crossing"),
         ("tom", "tmax_tomorrow"),
@@ -198,6 +212,15 @@ else:
         ("spr", "spread_f"),
         ("conf", "confidence_score"),
     ]
+    def has_any(key):
+        if key == "city":
+            return True
+        for rr in preds:
+            v = (rr.get(key) or "").strip()
+            if v:
+                return True
+        return False
+    cols = [c for c in cols_all if has_any(c[1])]
     def fmt(v):
         s = (v or "").strip()
         if not s:
@@ -257,12 +280,18 @@ else:
                 v = float(mf)
             except Exception:
                 continue
-            pts.append((ts, v))
+            sig = (r.get("current_sigma") or "").strip()
+            try:
+                s = float(sig) if sig else None
+            except Exception:
+                s = None
+            pts.append((ts, v, s))
         pts.sort(key=lambda x: x[0])
         pts = pts[-4:]
-        xs = [v for _, v in pts]
+        xs = [v for _, v, _ in pts]
+        last_sigma = pts[-1][2] if pts else None
         if not xs:
-            rows.append([trade_date, city, 0, "", "", "", ""])
+            rows.append([trade_date, city, 0, "", "", "", "", ""])
             continue
         avg = _mean(xs)
         drift = (xs[-1] - xs[0]) if len(xs) >= 2 else ""
@@ -276,10 +305,11 @@ else:
             len(xs),
             f"{xs[-1]:.2f}",
             f"{avg:.2f}" if avg is not None else "",
+            (f"{last_sigma:.2f}" if last_sigma is not None else ""),
             trend,
             (f"{drift:+.2f}" if drift != "" else ""),
         ])
-    _print_table(["trade_date","city","n","last(F)","trail_avg(F)","trend","drift(F)"], rows)
+    _print_table(["trade_date","city","n","last(F)","trail_avg(F)","sigma(F)","trend","drift(F)"], rows)
 print()
 
 print(f"Last {limit} placed bets (real orders):")

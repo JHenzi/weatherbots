@@ -237,12 +237,27 @@ def _parse_args():
     p.add_argument(
         "--prediction-mode",
         type=str,
-        default="forecast",
+        default="blend",
         choices=["lstm", "forecast", "blend"],
     )
     p.add_argument("--blend-forecast-weight", type=float, default=0.8)
 
-    p.add_argument("--refresh-history", action="store_true", help="Fetch recent observed window first")
+    # Default behavior: fetch recent observed window (keep LSTM inputs current).
+    # You can opt out with --skip-fetch if you want a faster run.
+    g = p.add_mutually_exclusive_group()
+    g.add_argument(
+        "--refresh-history",
+        dest="skip_fetch",
+        action="store_false",
+        help="Fetch recent observed window first (default).",
+    )
+    g.add_argument(
+        "--skip-fetch",
+        dest="skip_fetch",
+        action="store_true",
+        help="Skip fetching/cleaning observed inputs (faster, but can make LSTM stale).",
+    )
+    p.set_defaults(skip_fetch=False)
     p.add_argument("--retrain-lstm", action="store_true", help="Train new LSTM models after refresh")
     p.add_argument("--retrain-days-window", type=int, default=730, help="Training window (days)")
     p.add_argument("--val-days", type=int, default=30, help="Validation window (days)")
@@ -301,7 +316,7 @@ if __name__ == "__main__":
         "--predictions-csv",
         args.predictions_latest,
     ]
-    if not args.refresh_history:
+    if bool(getattr(args, "skip_fetch", False)):
         pred_cmd.append("--skip-fetch")
     _run(pred_cmd)
 
@@ -317,7 +332,7 @@ if __name__ == "__main__":
             "env": args.env,
             "prediction_mode": args.prediction_mode,
             "blend_forecast_weight": str(args.blend_forecast_weight),
-            "refresh_history": str(bool(args.refresh_history)),
+            "refresh_history": str(not bool(getattr(args, "skip_fetch", False))),
             "retrain_lstm": str(bool(args.retrain_lstm)),
         },
     )
