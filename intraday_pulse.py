@@ -583,6 +583,23 @@ def _parse_args():
     )
     p.add_argument("--predictions-latest", type=str, default="Data/predictions_latest.csv")
     p.add_argument("--predictions-history", type=str, default="Data/predictions_history.csv")
+    p.add_argument(
+        "--print",
+        action="store_true",
+        help="Print fetched forecasts to stdout (useful for docker exec / debugging).",
+    )
+    p.add_argument(
+        "--print-format",
+        type=str,
+        default="table",
+        choices=["table", "json"],
+        help="Output format when --print is set (default: table).",
+    )
+    p.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not write Data/*.csv files (still performs API calls; combine with --print).",
+    )
     return p.parse_args()
 
 
@@ -595,6 +612,7 @@ if __name__ == "__main__":
     started = _now_iso_local()
     wrote = 0
     pred_rows: list[dict] = []
+    intraday_rows: list[dict] = []
 
     for city in CITIES:
         tmax_open_meteo = _try_call(forecast_tmax_open_meteo, city=city, trade_dt=trade_dt)
@@ -654,8 +672,10 @@ if __name__ == "__main__":
             "sources_used": ",".join([s for s in SOURCES_ORDER if s in available]),
             "weights_used": ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]) if weights_used else "",
         }
-        _append_intraday_row(args.out_csv, row)
-        wrote += 1
+        intraday_rows.append(row)
+        if not args.no_write:
+            _append_intraday_row(args.out_csv, row)
+            wrote += 1
 
         if args.write_predictions:
             spread_f = sigma if sigma is not None else ""
@@ -683,24 +703,62 @@ if __name__ == "__main__":
                 }
             )
 
-    if args.write_predictions:
-        _write_predictions_latest(args.predictions_latest, pred_rows)
-        _append_predictions_history(
-            args.predictions_history,
-            pred_rows,
-            extra_fields={
-                "run_ts": _now_iso_local(),
+    if args.print:
+        if args.print_format == "json":
+            payload = {
+                "started": started,
+                "trade_date": trade_dt.isoformat(),
                 "env": args.env,
-                "prediction_mode": "forecast",
-                "blend_forecast_weight": "1.0",
-                "refresh_history": "False",
-                "retrain_lstm": "False",
-            },
-        )
+                "intraday_rows": intraday_rows,
+                "prediction_rows": pred_rows,
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            # Human-readable summary.
+            print(f"[intraday_pulse.py] started={started} trade_date={trade_dt.isoformat()} env={args.env}")
+            for r in intraday_rows:
+                city = r.get("city")
+                mean_f = r.get("mean_forecast")
+                sig = r.get("current_sigma")
+                print(f"\n--- {city} ---")
+                print(f"mean_forecast={mean_f} sigma={sig}")
+                print(f"sources_used={r.get('sources_used')}")
+                print(f"weights_used={r.get('weights_used')}")
+                # Provider values (compact).
+                for k in (
+                    "tmax_open_meteo",
+                    "tmax_visual_crossing",
+                    "tmax_tomorrow",
+                    "tmax_weatherapi",
+                    "tmax_google_weather",
+                    "tmax_openweathermap",
+                    "tmax_pirateweather",
+                    "tmax_weather_gov",
+                ):
+                    v = r.get(k, "")
+                    if str(v).strip() != "":
+                        print(f"{k}={v}")
+
+    if args.write_predictions:
+        if not args.no_write:
+            _write_predictions_latest(args.predictions_latest, pred_rows)
+            _append_predictions_history(
+                args.predictions_history,
+                pred_rows,
+                extra_fields={
+                    "run_ts": _now_iso_local(),
+                    "env": args.env,
+                    "prediction_mode": "forecast",
+                    "blend_forecast_weight": "1.0",
+                    "refresh_history": "False",
+                    "retrain_lstm": "False",
+                },
+            )
 
     print(
         f"[intraday_pulse.py] done start={started} trade_date={trade_dt.isoformat()} "
-        f"cities_written={wrote} out={args.out_csv}"
-        + (f" predictions_latest={args.predictions_latest}" if args.write_predictions else "")
+        f"cities_written={wrote if not args.no_write else 0} out={args.out_csv}"
+        + (f" predictions_latest={args.predictions_latest}" if (args.write_predictions and not args.no_write) else "")
+        + (" (no-write)" if args.no_write else "")
     )
 

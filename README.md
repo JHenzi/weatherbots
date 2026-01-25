@@ -2,6 +2,16 @@
 
 This repo predicts **daily maximum temperature** for 4 locations and maps the prediction into Kalshi “high temperature” markets for automated (or dry-run) trading.
 
+## Documentation
+
+Project docs live in `documentation/`:
+
+- **System architecture**: `documentation/system_architecture.md`
+- **Mathematical foundations (weights, sigma, EV)**: `documentation/mathematical_foundations.md`
+- **Data files + schemas**: `documentation/data_reference.md`
+- **Audit report (risks/strengths)**: `documentation/audit_results.md`
+- **Improvement roadmap**: `documentation/improvement_roadmap.md`
+
 ### Cities / coordinates
 - **NYC (Central Park / Belvedere Castle)**: `40.79736,-73.97785` (`ny`)
 - **Chicago (Midway Intl)**: `41.78701,-87.77166` (`il`)
@@ -27,7 +37,7 @@ pip install -r requirements.txt
   - `VISUAL_CROSSING_API_KEY`
   - `GOOGLE` (Google Weather API key; optional)
   - `KALSHI_API_KEY_ID`
-  - `KALSHI_PRIVATE_KEY_PATH` (points to your RSA PEM file, e.g. `gooony.txt`)
+  - `KALSHI_PRIVATE_KEY_PATH` (points to your RSA PEM file; for Docker we recommend `/run/secrets/kalshi_key.pem`)
   - `KALSHI_ENV` (`demo` or `prod`)
 
 Security note: `.env` and private-key files are gitignored.
@@ -53,6 +63,8 @@ Make sure your `.env` contains (at minimum):
 Edit `docker-compose.yml` to mount your PEM key file and set:
 - `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_key.pem`
 
+Important: the scheduled cron jobs run inside the container; make sure the container’s environment and/or mounted `.env` agrees with your key path. A common failure mode is `.env` setting `KALSHI_PRIVATE_KEY_PATH` to a host-only filename (e.g. `gooony.txt`) that does not exist in the container.
+
 ### 3) Run it (one command)
 From the repo root:
 
@@ -70,6 +82,12 @@ docker exec weather-trader /bin/bash /app/scripts/run_calibrate.sh
 docker exec weather-trader /bin/bash /app/scripts/run_settle.sh
 ```
 
+To force a safe manual dry-run regardless of container defaults:
+
+```bash
+docker exec -it -e WT_ENV=prod -e WT_SEND_ORDERS=false weather-trader /bin/bash /app/scripts/run_trade.sh
+```
+
 Or enable “run once on startup” by adding these to `docker-compose.yml` environment:
 - `WT_RUN_TRADE_ON_START=true`
 - `WT_RUN_CALIBRATE_ON_START=true`
@@ -85,8 +103,37 @@ Or enable “run once on startup” by adding these to `docker-compose.yml` envi
   - `Data/daily_metrics.csv` (MAE/RMSE + bucket hit-rate + daily PnL)
 
 ### 5) Schedule / timezone
-Cron times are defined in `ops/docker/crontab` (defaults: 3:30pm trade, 2:15am calibrate, 3:15am settle/metrics).
+Cron times are defined in `ops/docker/crontab` (defaults: intraday pulses at 09:00/15:00/21:00, trade at 22:00, calibrate at 02:15, settle/metrics at 03:15).
 If you want cron to run in your local timezone, set `TZ` in `docker-compose.yml` (e.g. `America/New_York`).
+
+---
+
+## To Get Predictions
+
+Run intraday_pulse.py:
+
+```bash
+docker exec -it weather-trader /bin/bash -lc '
+d=$(date +%F)
+python /app/intraday_pulse.py --trade-date "$d" --env "${WT_ENV:-prod}" --write-predictions
+'
+```
+
+Problem is, this writes to disk, we can't see them unless we run the dashboard: 
+
+```bash
+./scripts/dashboard_live.sh prod 10
+```
+
+OR NOW you can print output:
+
+```bash
+docker exec -it weather-trader /bin/bash -lc '
+d=$(date +%F)
+python /app/intraday_pulse.py --trade-date "$d" --env "${WT_ENV:-prod}" --print --no-write
+'
+```
+
 
 ---
 
@@ -185,7 +232,8 @@ If you want to keep it simple and split evenly across cities, run `kalshi_trader
 ### Order sizing (contracts)
 By default, orders are **auto-sized** to spend up to the **city’s allocated budget** (and the overall per-run cap), bounded by:
 - `--max-contracts-per-order` (default in Docker wrapper: `WT_MAX_CONTRACTS_PER_ORDER=500`)
-- the orderbook liquidity at the ask (`ask_qty`)
+
+Liquidity note: the trader **reads** best-ask depth (`ask_qty`) and prints warnings when your desired size exceeds displayed depth. It does **not** automatically cap `count` to `ask_qty`; if live trading is enabled it submits a single limit order and any unfilled remainder may rest on the book at the limit price.
 
 If you want fixed sizing instead, pass `--count N` (where `N>0`) to `kalshi_trader.py`.
 
