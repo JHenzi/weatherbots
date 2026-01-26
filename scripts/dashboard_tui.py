@@ -649,9 +649,19 @@ def main():
                 return False
 
             all_cols = [c for c in all_cols_all if _has_any(c[1])]
-            # Always include these.
-            base = [all_cols[0], all_cols[1], all_cols[-2], all_cols[-1]]  # city, cons, spr, conf
-            optional = [c for c in all_cols[2:-2]]  # sources
+            # Always include these, but handle cases where we don't have enough columns.
+            if len(all_cols) < 2:
+                # Not enough columns - just show what we have
+                base = all_cols
+                optional = []
+            elif len(all_cols) < 4:
+                # Have city and consensus, but missing spread/confidence
+                base = all_cols[:2]  # city, cons
+                optional = all_cols[2:]  # any remaining
+            else:
+                # Normal case: city, cons, [sources...], spr, conf
+                base = [all_cols[0], all_cols[1], all_cols[-2], all_cols[-1]]  # city, cons, spr, conf
+                optional = [c for c in all_cols[2:-2]]  # sources
 
             def est_width(cols):
                 # rough estimate: 2 spaces between cols, and ~6 chars per value

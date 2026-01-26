@@ -814,53 +814,12 @@ def make_trade(
     # not necessarily the bucket containing pred_mean.
     print(f"Pred_mean={pred:.2f} | chosen_bucket='{subtitle}' | market={ticker}")
 
-    # NOTE: trades_log is written only when a trade is allowed to proceed.
-
-    if trades_log:
-        os.makedirs(os.path.dirname(trades_log) or ".", exist_ok=True)
-        write_header = not os.path.exists(trades_log)
-        with open(trades_log, "a", newline="") as f:
-            w = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "run_ts",
-                    "env",
-                    "trade_date",
-                    "city",
-                    "series_ticker",
-                    "event_ticker",
-                    "market_ticker",
-                    "market_subtitle",
-                    "pred_tmax_f",
-                    "side",
-                    "count",
-                    "yes_price",
-                    "no_price",
-                    "send_orders",
-                ],
-            )
-            if write_header:
-                w.writeheader()
-            w.writerow(
-                {
-                    "run_ts": _now_iso(),
-                    "env": env,
-                    "trade_date": trade_dt_str,
-                    "city": city,
-                    "series_ticker": series,
-                    "event_ticker": event_ticker,
-                    "market_ticker": ticker,
-                    "market_subtitle": subtitle,
-                    "pred_tmax_f": f"{pred:.4f}",
-                    "side": side,
-                    "count": int(count),
-                    "yes_price": int(yes_price),
-                    "no_price": int(no_price),
-                    "send_orders": bool(send_orders),
-                }
-            )
-
+    # NOTE: we move the trades_log writing to AFTER successful order submission
+    # to ensure idempotency only blocks if the trade actually went through.
+    
     if not send_orders:
+        if trades_log:
+            _write_trade_log(trades_log, env, trade_dt_str, city, series, event_ticker, ticker, subtitle, pred, side, count, yes_price, no_price, False)
         print(
             f"DRY RUN: would submit order action=buy side={side} count={count} "
             f"yes_price={yes_price} no_price={no_price}"
@@ -894,7 +853,56 @@ def make_trade(
     resp = client.post("/trade-api/v2/portfolio/orders", order)
     if resp.status_code != 201:
         raise RuntimeError(f"Order failed: {resp.status_code} {resp.text}")
+    
+    # SUCCESS: now record the live trade
+    if trades_log:
+        _write_trade_log(trades_log, env, trade_dt_str, city, series, event_ticker, ticker, subtitle, pred, side, count, yes_price, no_price, True)
     print(f"Order submitted: {ticker}")
+
+
+def _write_trade_log(path, env, trade_dt_str, city, series, event_ticker, market_ticker, subtitle, pred, side, count, yes_price, no_price, send_orders):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    write_header = not os.path.exists(path)
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "run_ts",
+                "env",
+                "trade_date",
+                "city",
+                "series_ticker",
+                "event_ticker",
+                "market_ticker",
+                "market_subtitle",
+                "pred_tmax_f",
+                "side",
+                "count",
+                "yes_price",
+                "no_price",
+                "send_orders",
+            ],
+        )
+        if write_header:
+            w.writeheader()
+        w.writerow(
+            {
+                "run_ts": _now_iso(),
+                "env": env,
+                "trade_date": trade_dt_str,
+                "city": city,
+                "series_ticker": series,
+                "event_ticker": event_ticker,
+                "market_ticker": market_ticker,
+                "market_subtitle": subtitle,
+                "pred_tmax_f": f"{pred:.4f}",
+                "side": side,
+                "count": int(count),
+                "yes_price": int(yes_price),
+                "no_price": int(no_price),
+                "send_orders": bool(send_orders),
+            }
+        )
 
 
 def _parse_args():
