@@ -22,6 +22,27 @@ The consensus mean $\mu$ is the weighted average of the individual predictions $
 
 $$\mu = \sum_{i=1}^{M} w_i \cdot x_i$$
 
+## 1b. Implementation notes (current code)
+
+This section documents the “in-place” implementation as of the current Docker build, so the math matches what’s actually executed.
+
+### What gets weighted
+
+- **Calibration weights (`Data/weights.json`)** are computed by `calibrate_sources.py` over sources in:
+  - `consensus`, `open-meteo`, `visual-crossing`, `tomorrow`, `weatherapi`, `google-weather`,
+    `openweathermap`, `pirateweather`, `weather.gov`, `lstm`
+- **Intraday forecast aggregation (`intraday_pulse.py`)** uses **forecast providers only** (excludes `lstm` and ignores `consensus`), and only over providers that returned a value on that run.
+
+### Rolling window (inclusive)
+
+Calibration runs for an `as_of` event date (typically “yesterday” in cron). The MAE window is inclusive:
+
+\[
+[as\_of-(N-1),\ as\_of]
+\]
+
+This ensures that once a day’s NWS truth is fetched, that day immediately influences weights for subsequent intraday/trade runs.
+
 ## 2. Uncertainty Modeling ($\sigma$)
 
 Quantifying uncertainty is critical for calculating the probability of hitting a specific Kalshi temperature bucket.
@@ -36,6 +57,22 @@ Where:
 - $MAE_{\text{historical}}$: The historical Mean Absolute Error for that specific city, retrieved from `city_metadata.json`.
 
 This approach ensures that if the models disagree, the distribution widens. Even if they perfectly agree, the distribution remains at least as wide as the historical average error.
+
+### Implementation notes: two “sigmas”
+
+The system uses two related but distinct spread notions:
+
+1) **Intraday snapshot spread** (`intraday_pulse.py`)
+
+- \(\sigma_{\text{snapshot}} = \text{pstdev}(\{x_i\})\) across available provider forecasts for that run.
+- This is written to:
+  - `Data/intraday_forecasts.csv` as `current_sigma`
+  - `Data/predictions_latest.csv` as `spread_f` (when `--write-predictions` is used)
+
+2) **Trading distribution sigma** (`kalshi_trader.py`)
+
+- \(\sigma = \max(spread\_f,\ historical\_MAE)\)
+- where `historical_MAE` is derived from `Data/source_performance.csv` (typically using `source_name=consensus` errors) and written to `Data/city_metadata.json`.
 
 ## 3. Probability Distribution
 
