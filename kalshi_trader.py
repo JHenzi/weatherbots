@@ -975,7 +975,7 @@ def _parse_args():
         help="Append trade decisions (including skips) to this CSV.",
     )
     # Safe defaults to match the VotingModel guardrails.
-    p.add_argument("--min-confidence", type=float, default=0.5, help="Skip if confidence_score < this")
+    p.add_argument("--min-confidence", type=float, default=0.75, help="Skip if confidence_score < this")
     p.add_argument("--max-spread", type=float, default=3.0, help="Skip if spread_f > this")
     p.add_argument("--eval-log", type=str, default=None, help="Append evaluation rows to this CSV.")
 
