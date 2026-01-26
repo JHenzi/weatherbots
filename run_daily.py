@@ -274,7 +274,7 @@ def _parse_args():
     p.add_argument("--trades-history", type=str, default="Data/trades_history.csv")
     p.add_argument("--decisions-history", type=str, default="Data/decisions_history.csv")
     p.add_argument("--eval-history", type=str, default="Data/eval_history.csv")
-    p.add_argument("--min-confidence", type=float, default=0.5)
+    p.add_argument("--min-confidence", type=float, default=0.75)
     p.add_argument("--max-spread", type=float, default=3.0)
 
     # Orderbook/EV/sizing controls (conservative defaults; forwarded to kalshi_trader.py)
