@@ -11,9 +11,9 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 00 15 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
 00 21 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
 
-# Daily trade run for tomorrow's markets at 10:00pm local container time (America/New_York)
+# Daily trade run for tomorrow's markets at 10:30pm local container time (America/New_York)
 # (This run performs the final 22:00 forecast fetch + trades if gates pass.)
-00 22 * * * cd /app && /bin/bash /app/scripts/run_trade.sh 2>&1 | tee -a /app/Data/logs/trade.cron.log
+30 22 * * * cd /app && /bin/bash /app/scripts/run_trade.sh 2>&1 | tee -a /app/Data/logs/trade.cron.log
 
 # Nightly calibration for yesterday (default 2:15am local container time)
 15 2 * * * cd /app && /bin/bash /app/scripts/run_calibrate.sh 2>&1 | tee -a /app/Data/logs/calibrate.cron.log

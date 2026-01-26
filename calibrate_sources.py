@@ -114,8 +114,10 @@ def _compute_weights(perf_path: str, *, trade_date: dt.date, window_days: int) -
             if not errs:
                 continue
             mae = sum(errs) / len(errs)
+            # Handle perfect predictions (MAE=0): use a very small floor to avoid division by zero
+            # This gives perfect sources extremely high weight (effectively infinite)
             if mae <= 0:
-                continue
+                mae = 0.01  # 0.01°F floor for perfect predictions
             ws[source] = 1.0 / (mae * mae)
         # normalize
         s = sum(ws.values())
@@ -187,6 +189,10 @@ if __name__ == "__main__":
             try:
                 pred = float(v)
             except Exception:
+                continue
+            # Skip invalid predictions: 0.0 indicates missing data (not a real forecast)
+            # Also skip values outside reasonable temperature range (-50°F to 150°F)
+            if pred == 0.0 or pred < -50.0 or pred > 150.0:
                 continue
             perf_rows.append(
                 {

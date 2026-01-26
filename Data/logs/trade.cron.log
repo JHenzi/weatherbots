@@ -47,3 +47,75 @@ Selected bucket from forecast(mu): '78° to 79°' (mu=78.49) → market=KXHIGHMI
 LIQUIDITY WARNING: desired_count=77 > depth_at_best=17. Next level ask≈8¢ implies +14.3% price move (>10%). Order may not fully fill without moving price.
 Pred_mean=78.49 | chosen_bucket='78° to 79°' | market=KXHIGHMIA-26JAN25-B78.5
 Order submitted: KXHIGHMIA-26JAN25-B78.5
+[trade] 2026-01-26T03:00:02+00:00 trade_date=2026-01-26 (final 22:00 fetch)
+[trade] 2026-01-26T03:00:02+00:00 trade_date=2026-01-26 (final 22:00 fetch)
+[intraday_pulse.py] done start=2026-01-25T22:00:03.016551-05:00 trade_date=2026-01-26 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse.py] done start=2026-01-25T22:00:03.099148-05:00 trade_date=2026-01-26 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+WARNING: could not fetch Kalshi balance; using configured caps only (Failed to fetch balance: 401 {"error":{"code":"authentication_error","message":"authentication_error","details":"NOT_FOUND"}})
+Per-run cap=$50.00 (configured; balance unavailable)
+City budget caps: ny=$12.50, il=$12.50, tx=$12.50, fl=$12.50 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.498 (no sizing impact)
+Selected bucket from forecast(mu): '27° to 28°' (mu=28.11) → market=KXHIGHNY-26JAN26-B27.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=2.020 (no sizing impact)
+Selected bucket from forecast(mu): '7° to 8°' (mu=8.34) → market=KXHIGHCHI-26JAN26-B7.5 ask=100¢ depth=5 (px=market)
+Pred_mean=8.34 | chosen_bucket='7° to 8°' | market=KXHIGHCHI-26JAN26-B7.5
+DRY RUN: would submit order action=buy side=yes count=12 yes_price=100 no_price=99
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-26 -----------
+SKIP: confidence_score=0.128 < 0.5
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.983 (no sizing impact)
+Selected bucket from forecast(mu): '83° to 84°' (mu=83.12) → market=KXHIGHMIA-26JAN26-B83.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
+WARNING: could not fetch Kalshi balance; using configured caps only (Failed to fetch balance: 401 {"error":{"code":"authentication_error","message":"authentication_error","details":"NOT_FOUND"}})
+Per-run cap=$50.00 (configured; balance unavailable)
+City budget caps: ny=$12.50, il=$12.50, tx=$12.50, fl=$12.50 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.498 (no sizing impact)
+Selected bucket from forecast(mu): '27° to 28°' (mu=28.11) → market=KXHIGHNY-26JAN26-B27.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=2.020 (no sizing impact)
+Selected bucket from forecast(mu): '7° to 8°' (mu=8.34) → market=KXHIGHCHI-26JAN26-B7.5 ask=100¢ depth=5 (px=market)
+Pred_mean=8.34 | chosen_bucket='7° to 8°' | market=KXHIGHCHI-26JAN26-B7.5
+DRY RUN: would submit order action=buy side=yes count=12 yes_price=100 no_price=99
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-26 -----------
+SKIP: confidence_score=0.128 < 0.5
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-26 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.983 (no sizing impact)
+Selected bucket from forecast(mu): '83° to 84°' (mu=83.12) → market=KXHIGHMIA-26JAN26-B83.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
+[trade] 2026-01-26T03:30:01+00:00 trade_date=2026-01-26 (final 22:00 fetch)
+[intraday_pulse.py] done start=2026-01-25T22:30:02.636139-05:00 trade_date=2026-01-26 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+WARNING: could not fetch Kalshi balance; using configured caps only (Failed to fetch balance: 401 {"error":{"code":"authentication_error","message":"authentication_error","details":"NOT_FOUND"}})
+Per-run cap=$50.00 (configured; balance unavailable)
+City budget caps: ny=$12.50, il=$12.50, tx=$12.50, fl=$12.50 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-26 -----------
+Intraday signal: ok=True n=4 trend=increasing sigma=1.494 (no sizing impact)
+Selected bucket from forecast(mu): '27° to 28°' (mu=28.11) → market=KXHIGHNY-26JAN26-B27.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-26 -----------
+Intraday signal: ok=True n=4 trend=increasing sigma=2.107 (no sizing impact)
+Selected bucket from forecast(mu): '7° to 8°' (mu=8.34) → market=KXHIGHCHI-26JAN26-B7.5 ask=100¢ depth=5 (px=market)
+Pred_mean=8.34 | chosen_bucket='7° to 8°' | market=KXHIGHCHI-26JAN26-B7.5
+DRY RUN: would submit order action=buy side=yes count=12 yes_price=100 no_price=99
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-26 -----------
+SKIP: confidence_score=0.000 < 0.5
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-26 -----------
+Intraday signal: ok=True n=4 trend=decreasing sigma=2.233 (no sizing impact)
+Selected bucket from forecast(mu): '83° to 84°' (mu=82.70) → market=KXHIGHMIA-26JAN26-B83.5 ask=0¢ depth=5 (px=market)
+SKIP: budget caps reduce count to 0 (yes_ask=0 budget_cap=0)
