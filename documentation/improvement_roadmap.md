@@ -31,6 +31,14 @@ This document outlines suggested future enhancements for the Kalshi Weather Trad
 - **Goal**: Optimize position sizing for long-term capital growth.
 - **Action**: Use the Kelly formula to determine the optimal bet size based on the model's edge and the probability of loss, likely using a conservative "Half-Kelly" or "Quarter-Kelly" multiplier.
 
+#### Design docs
+- `documentation/kelly_sizing.md`
+- `documentation/orderbook_execution.md`
+- `documentation/capital_allocation.md`
+
+#### Backup plan (operational)
+- If the day results in **0 trades** after all constraints, optionally place a small “best bet” (highest EV / most confident) under strict size + liquidity caps. Documented in `documentation/kelly_sizing.md`.
+
 ## 3. Long-Term Enhancements (High Impact, High Difficulty)
 
 ### Contextual Bandits for Model Selection

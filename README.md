@@ -134,6 +134,50 @@ python /app/intraday_pulse.py --trade-date "$d" --env "${WT_ENV:-prod}" --print 
 '
 ```
 
+## Weights + math (what’s actually running)
+
+### A) Learned provider weights (`Data/weights.json`)
+Updated by the nightly calibration job (`scripts/run_calibrate.sh` → `calibrate_sources.py`) once NWS CLI “truth” is available.
+
+- **Inputs**
+  - Predictions for a trade date (from `Data/predictions_history.csv`)
+  - Actual max temp from NWS CLI (via `truth_engine.py`)
+  - Logged errors in `Data/source_performance.csv`
+- **Per-city per-source error window (inclusive)**
+  - last \(N\) days ending at `as_of` (the calibrated `trade_date`)
+  - \([as\_of-(N-1),\ as\_of]\)
+- **MAE + weights**
+  - \(MAE_i = \text{mean}(|pred_i - actual|)\) over the window
+  - \(w_i \propto 1/MAE_i^2\), normalized so \(\sum_i w_i = 1\)
+
+### B) Intraday forecast “consensus” (`intraday_pulse.py`)
+Cron runs `scripts/run_intraday_pulse.sh` at **09:00 / 15:00 / 21:00** local container time. It targets **tomorrow’s markets**:
+
+- `trade_date = today + 1`
+- For each city, fetches provider forecasts (Open‑Meteo / Visual Crossing / Tomorrow / WeatherAPI / Google / OpenWeatherMap / PirateWeather / weather.gov).
+- **Mean forecast (\(\mu\))**
+  - uses `Data/weights.json` **if it contains weights for those providers**
+  - otherwise falls back to **equal weights** across available providers
+  - \(\mu = \sum_i w_i x_i\)
+- **Snapshot spread (“sigma”)**
+  - \(\sigma_{\text{snapshot}} = \text{pstdev}(\{x_i\})\) across available provider forecasts
+
+Outputs:
+- `Data/intraday_forecasts.csv` (append-only snapshots)
+- optionally `Data/predictions_latest.csv` + `Data/predictions_history.csv` when run with `--write-predictions`
+
+### C) Trading distribution sigma (`kalshi_trader.py`)
+When trading, the bot uses:
+
+- `spread_f` from the predictions row (typically the intraday snapshot std dev)
+- `historical_MAE` from `Data/city_metadata.json`
+
+and sets:
+
+- \(\sigma = \max(spread\_f,\ historical\_MAE)\)
+
+This is the \(\sigma\) used for bucket probabilities and EV logging.
+
 
 ---
 
