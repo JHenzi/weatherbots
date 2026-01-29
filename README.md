@@ -151,9 +151,8 @@ Updated by the nightly calibration job (`scripts/run_calibrate.sh` → `calibrat
   - \(w_i \propto 1/MAE_i^2\), normalized so \(\sum_i w_i = 1\)
 
 ### B) Intraday forecast “consensus” (`intraday_pulse.py`)
-Cron runs `scripts/run_intraday_pulse.sh` at **09:00 / 15:00 / 21:00** local container time. It targets **tomorrow’s markets**:
+Cron runs `scripts/run_intraday_pulse.sh` at **09:00 / 15:00 / 21:00** local container time. It targets the configured `trade_date` (e.g. tomorrow in cron, or today for the 07:00 run):
 
-- `trade_date = today + 1`
 - For each city, fetches provider forecasts (Open‑Meteo / Visual Crossing / Tomorrow / WeatherAPI / Google / OpenWeatherMap / PirateWeather / weather.gov).
 - **Mean forecast (\(\mu\))**
   - uses `Data/weights.json` **if it contains weights for those providers**
@@ -161,6 +160,11 @@ Cron runs `scripts/run_intraday_pulse.sh` at **09:00 / 15:00 / 21:00** local con
   - \(\mu = \sum_i w_i x_i\)
 - **Snapshot spread (“sigma”)**
   - \(\sigma_{\text{snapshot}} = \text{pstdev}(\{x_i\})\) across available provider forecasts
+- **Confidence score**
+  - A blended measure combining:
+    - spread-based agreement (low \(\sigma_{\text{snapshot}}\) ⇒ higher raw confidence), and
+    - an entropy-based skill score derived from the learned provider weights for that city.
+  - Final confidence is capped below 1.0 and is written as `confidence_score` alongside `spread_f`.
 
 Outputs:
 - `Data/intraday_forecasts.csv` (append-only snapshots)

@@ -16,6 +16,7 @@ WT_ENV="${WT_ENV:-demo}"
 WT_SEND_ORDERS="${WT_SEND_ORDERS:-false}"
 WT_MAX_CONTRACTS_PER_ORDER="${WT_MAX_CONTRACTS_PER_ORDER:-500}"
 
+# Trade on **today's** markets using freshly-updated weights (truth for yesterday arrives ~06:30).
 TRADE_DATE="$(python - <<'PY'
 import datetime as dt, os
 try:
@@ -24,13 +25,13 @@ try:
 except Exception:
     tz = dt.datetime.now().astimezone().tzinfo
 today = dt.datetime.now(tz=tz).date()
-print((today + dt.timedelta(days=1)).isoformat())
+print(today.isoformat())
 PY
 )"
 
-echo "[trade] $(date -Is) trade_date=${TRADE_DATE} (final 22:00 fetch)"
+echo "[trade] $(date -Is) trade_date=${TRADE_DATE} (07:00 fetch + trade)"
 
-# Final 22:00 fetch (writes intraday row + predictions_latest + appends predictions_history)
+# Morning fetch (writes intraday row + predictions_latest + appends predictions_history)
 python intraday_pulse.py \
   --trade-date "$TRADE_DATE" \
   --env "$WT_ENV" \

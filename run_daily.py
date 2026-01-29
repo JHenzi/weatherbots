@@ -2,6 +2,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import math
 import os
 import subprocess
 import sys
@@ -68,7 +69,43 @@ def _confidence_from_spread(spread_f: float) -> float:
     if spread_f >= 3.0:
         return 0.0
     # Linear interpolation between 1.5 and 3.0
-    return float((3.0 - spread_f) / (3.0 - 1.5))
+    return float((3.0 - float(spread_f)) / (3.0 - 1.5))
+
+
+def _skill_from_weights(weights_used: dict[str, float]) -> float:
+    """
+    Derive a per-city skill factor from the learned weights.
+
+    Heuristic:
+    - Interpret weights as a probability distribution over providers.
+    - Use normalized Shannon entropy to capture how many competent sources
+      contribute meaningfully to the ensemble:
+        * High entropy (diversified, multiple good sources) → skill_conf ~ 1.0
+        * Low entropy (one dominant source) → skill_conf ~ 0.0
+    - This does NOT introduce extra recency bias: it relies solely on the
+      existing MAE-based weights for the calibration window.
+    """
+    if not weights_used:
+        # Neutral when we have no view on provider skill.
+        return 0.5
+
+    ws = [max(0.0, float(v)) for v in weights_used.values()]
+    s = sum(ws)
+    if s <= 0:
+        return 0.5
+
+    probs = [w / s for w in ws if w > 0.0]
+    if len(probs) <= 1:
+        # Single provider (or effectively single) → treat as moderate/unknown skill.
+        return 0.5
+
+    H = -sum(p * math.log(p) for p in probs)
+    H_max = math.log(len(probs))
+    if H_max <= 0:
+        return 0.5
+
+    entropy_norm = max(0.0, min(1.0, H / H_max))
+    return float(entropy_norm)
 
 
 def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.json") -> None:
@@ -127,7 +164,8 @@ def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.
         if not spread_vals:
             spread_vals = vals
         spread = float(__import__("statistics").pstdev(list(spread_vals.values()))) if len(spread_vals) > 1 else 0.0
-        conf = _confidence_from_spread(spread)
+        # 1) Spread-based component (agreement between providers).
+        spread_conf_raw = _confidence_from_spread(spread)
 
         # weights
         w_city = (weights_all.get(city) or {}).get("weights") if isinstance(weights_all.get(city), dict) else None
@@ -160,9 +198,23 @@ def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.
                 weights_used = {k: v / s for k, v in weights_used.items()}
 
         consensus = sum(weights_used[src] * vals[src] for src in weights_used.keys())
+
+        # 2) Skill-based component from the learned weights.
+        #    Use entropy-normalized dispersion of weights_used as a proxy for
+        #    ensemble robustness (no extra recency beyond weights.json).
+        skill_conf = _skill_from_weights(weights_used)
+
+        # 3) Combine spread and skill into the final confidence score.
+        #    - Cap the spread-only confidence below 1.0 so we never claim
+        #      literal 100% certainty from agreement alone.
+        #    - Downscale when ensemble skill is low, up to the cap when both
+        #      spread and skill are favorable.
+        spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
+        conf_final = spread_conf * (0.5 + 0.5 * skill_conf)
+
         row["tmax_predicted"] = f"{consensus}"
         row["spread_f"] = f"{spread}"
-        row["confidence_score"] = f"{conf}"
+        row["confidence_score"] = f"{conf_final}"
         row["sources_used"] = ",".join(sorted(weights_used.keys()))
         row["weights_used"] = ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())])
 
