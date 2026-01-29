@@ -22,3 +22,31 @@
 [intraday_pulse] 2026-01-26T15:00:02-05:00 trade_date=2026-01-27
 [intraday_pulse.py] done start=2026-01-26T15:00:03.773331-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv
 [intraday_pulse.py] done start=2026-01-26T15:00:02.336240-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse] 2026-01-26T21:00:01-05:00 trade_date=2026-01-27
+[intraday_pulse] 2026-01-27T02:00:01+00:00 trade_date=2026-01-27
+[intraday_pulse.py] done start=2026-01-26T21:00:02.723910-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse.py] done start=2026-01-26T21:00:02.277107-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse] 2026-01-27T09:00:01-05:00 trade_date=2026-01-28
+[intraday_pulse] 2026-01-27T14:00:01+00:00 trade_date=2026-01-28
+[intraday_pulse.py] done start=2026-01-27T09:00:02.098145-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse.py] done start=2026-01-27T09:00:01.255883-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse] 2026-01-27T15:00:01-05:00 trade_date=2026-01-27
+[intraday_pulse] 2026-01-27T20:00:01+00:00 trade_date=2026-01-28
+[intraday_pulse.py] done start=2026-01-27T15:00:02.574868-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse.py] done start=2026-01-27T15:00:02.844787-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse] 2026-01-27T21:00:01-05:00 trade_date=2026-01-27
+[intraday_pulse] 2026-01-28T02:00:01+00:00 trade_date=2026-01-28
+[intraday_pulse.py] done start=2026-01-27T21:00:02.072848-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse.py] done start=2026-01-27T21:00:02.073197-05:00 trade_date=2026-01-27 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse] 2026-01-28T14:00:01+00:00 trade_date=2026-01-29
+[intraday_pulse] 2026-01-28T09:00:01-05:00 trade_date=2026-01-28
+[intraday_pulse.py] done start=2026-01-28T09:00:02.045473-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse.py] done start=2026-01-28T09:00:01.909327-05:00 trade_date=2026-01-29 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse] 2026-01-28T15:00:02-05:00 trade_date=2026-01-28
+[intraday_pulse] 2026-01-28T20:00:02+00:00 trade_date=2026-01-29
+[intraday_pulse.py] done start=2026-01-28T15:00:02.921106-05:00 trade_date=2026-01-29 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse.py] done start=2026-01-28T15:00:02.931630-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+[intraday_pulse] 2026-01-28T21:00:01-05:00 trade_date=2026-01-28
+[intraday_pulse] 2026-01-29T02:00:01+00:00 trade_date=2026-01-29
+[intraday_pulse.py] done start=2026-01-28T21:00:02.169599-05:00 trade_date=2026-01-29 cities_written=4 out=Data/intraday_forecasts.csv
+[intraday_pulse.py] done start=2026-01-28T21:00:02.061358-05:00 trade_date=2026-01-28 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv

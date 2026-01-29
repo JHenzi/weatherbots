@@ -90,9 +90,54 @@ Where $\Phi$ is the standard Normal CDF.
 - For "Above $X$" buckets: $P(T \ge X) = 1 - \Phi\left(\frac{X - \mu}{\sigma}\right)$
 - For "Below $X$" buckets: $P(T \le X) = \Phi\left(\frac{X - \mu}{\sigma}\right)$
 
-## 4. Expected Value (EV) and Trade Selection
+## 4. Confidence, Expected Value (EV) and Trade Selection
+
+### Confidence score (in-place implementation)
+
+The system derives a **confidence score** that combines:
+
+- **Spread component** (agreement between providers):
+  - Start from the snapshot spread \(\sigma_{\text{spread}}\).
+  - Map it to a raw confidence:
+    - If \(\sigma_{\text{spread}} \le 1.5\): \(c_{\text{spread}} = 1.0\)
+    - If \(\sigma_{\text{spread}} \ge 3.0\): \(c_{\text{spread}} = 0.0\)
+    - Otherwise:
+      \[
+      c_{\text{spread}} = \frac{3.0 - \sigma_{\text{spread}}}{3.0 - 1.5}
+      \]
+  - For trading-time guardrails, this raw value is **capped at 0.9** so pure agreement never implies literal 100% confidence.
+
+- **Skill component** (ensemble robustness from learned weights):
+  - Take the learned provider weights \(w_i\) for that city, normalize to probabilities:
+    \[
+    p_i = \frac{\max(w_i, 0)}{\sum_j \max(w_j, 0)}
+    \]
+  - Compute Shannon entropy:
+    \[
+    H = -\sum_i p_i \log p_i,\quad H_{\max} = \log N
+    \]
+    where \(N\) is the number of non-zero \(p_i\).
+  - Define a normalized **skill score**:
+    \[
+    c_{\text{skill}} =
+      \begin{cases}
+        0.5, & \text{if } N \le 1 \text{ or } H_{\max} \le 0 \\
+        \text{clip}\left(\dfrac{H}{H_{\max}}, 0, 1\right), & \text{otherwise}
+      \end{cases}
+    \]
+
+- **Final confidence score**:
+  - With both components, the in-place formula is:
+    \[
+    c_{\text{final}} = c_{\text{spread, capped}} \times \left(0.5 + 0.5 \cdot c_{\text{skill}}\right)
+    \]
+  - Intuitively:
+    - If models disagree (low \(c_{\text{spread}}\)), confidence stays low regardless of skill.
+    - If models agree but skill is poor, confidence remains materially below 1.0.
+    - Only when both agreement and ensemble skill are strong does \(c_{\text{final}}\) approach (but never reach) 1.0.
 
 ### Expected Value Calculation
+
 The Expected Value ($EV$) of a "YES" contract is calculated in cents:
 
 $$EV_{\text{cents}} = (100 \cdot P_{\text{model}}) - Price_{\text{market}}$$
@@ -102,9 +147,10 @@ Where:
 - $Price_{\text{market}}$: The current "YES" ask price on Kalshi (in cents, 1-99).
 
 ### Trade Decision
+
 A trade is executed only if:
 1. $EV_{\text{cents}} \ge \text{Min EV Threshold}$ (default 3 cents).
-2. $\text{Confidence Score} \ge \text{Min Confidence}$ (derived from $\sigma_{\text{spread}}$).
+2. $\text{Confidence Score} \ge \text{Min Confidence}$ (now the blended spread×skill score).
 3. $\sigma_{\text{spread}} \le \text{Max Spread}$.
 
 ## 5. Position Sizing and Allocation

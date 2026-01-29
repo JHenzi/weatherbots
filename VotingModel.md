@@ -33,12 +33,25 @@ Export to Sheets
 
 #### **Step 2: Confidence Guardrail**
 
-The bot measures the "Spread" (Standard Deviation) between these sources.
+The bot computes a **confidence score** that blends:
 
-- **Low Spread (<1.5°F):** High Confidence. Execute trades aggressively.
-    
-- **High Spread (>3.0°F):** Conflict. The models are guessing. **Abort Trade.**
-    
+- **Spread-based agreement**: how tightly clustered the providers are (low standard deviation ⇒ higher confidence).
+- **Learned provider skill**: how diversified and reliable the contributing sources are, based on the MAE-driven weights in `Data/weights.json`.
+
+In the current code:
+
+- A raw spread confidence is computed from the inter-model spread:
+  - \(\sigma_{\text{spread}} \le 1.5°F \Rightarrow c_{\text{spread}} = 1.0\)
+  - \(\sigma_{\text{spread}} \ge 3.0°F \Rightarrow c_{\text{spread}} = 0.0\)
+  - Linearly interpolated between 1.5°F and 3.0°F, then capped at 0.9.
+- A skill score is computed from the entropy of the learned weights (high entropy ⇒ many good sources contributing ⇒ higher skill).
+- The final confidence is:
+  - \(c_{\text{final}} = c_{\text{spread, capped}} \times (0.5 + 0.5 \cdot c_{\text{skill}})\).
+
+Trades are only considered when:
+
+- \(c_{\text{final}} \ge \text{Min Confidence}\) (currently 0.75), and
+- \(\sigma_{\text{spread}} \le \text{Max Spread}\) (currently 3.0°F).
 
 #### **Step 3: Market Execution (The "Fair Price" Calculation)**
 

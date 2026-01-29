@@ -2,6 +2,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import math
 import os
 import statistics
 import time
@@ -81,6 +82,38 @@ def _confidence_from_spread(spread_f: float) -> float:
     if spread_f >= 3.0:
         return 0.0
     return float((3.0 - float(spread_f)) / (3.0 - 1.5))
+
+
+def _skill_from_weights(weights_used: dict[str, float]) -> float:
+    """
+    Derive a per-city skill factor from the learned weights.
+
+    Mirrors run_daily._skill_from_weights:
+    - Interpret weights as a probability distribution over providers.
+    - Use normalized Shannon entropy to capture how many competent sources
+      contribute meaningfully to the ensemble:
+        * High entropy (diversified, multiple good sources) → skill_conf ~ 1.0
+        * Low entropy (one dominant source) → skill_conf ~ 0.0
+    """
+    if not weights_used:
+        return 0.5
+
+    ws = [max(0.0, float(v)) for v in weights_used.values()]
+    s = sum(ws)
+    if s <= 0:
+        return 0.5
+
+    probs = [w / s for w in ws if w > 0.0]
+    if len(probs) <= 1:
+        return 0.5
+
+    H = -sum(p * math.log(p) for p in probs)
+    H_max = math.log(len(probs))
+    if H_max <= 0:
+        return 0.5
+
+    entropy_norm = max(0.0, min(1.0, H / H_max))
+    return float(entropy_norm)
 
 
 def _load_weights(path: str) -> dict:
@@ -655,6 +688,16 @@ if __name__ == "__main__":
         )
         sigma = float(statistics.pstdev(list(available.values()))) if len(available) > 1 else (0.0 if available else None)
 
+        # 1) Spread-based component (agreement between providers) from current sigma.
+        spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
+
+        # 2) Skill-based component from the learned weights.
+        skill_conf = _skill_from_weights(weights_used)
+
+        # 3) Combine spread and skill into the final confidence score.
+        spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
+        conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
+
         row = {
             "timestamp": _now_iso_local(),
             "city": city,
@@ -679,7 +722,7 @@ if __name__ == "__main__":
 
         if args.write_predictions:
             spread_f = sigma if sigma is not None else ""
-            conf = "" if sigma is None else f"{_confidence_from_spread(float(sigma)):.4f}"
+            conf = "" if conf_final is None else f"{float(conf_final):.4f}"
             pred_rows.append(
                 {
                     "date": trade_dt.strftime("%Y-%m-%d"),
