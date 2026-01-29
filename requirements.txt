@@ -1,4 +1,7 @@
 python-dotenv
+astral
+fastapi
+uvicorn[standard]
 requests
 requests-cache
 retry-requests
@@ -10,3 +13,4 @@ scikit-learn
 tensorflow
 cryptography
 kalshi_python_sync
+psycopg2-binary

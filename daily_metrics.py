@@ -5,6 +5,11 @@ import math
 import os
 from collections import defaultdict
 
+try:
+    import db  # type: ignore  # local Postgres helpers
+except Exception:  # pragma: no cover - defensive fallback when db.py missing
+    db = None  # type: ignore[assignment]
+
 
 SOURCES = [
     ("consensus", "mu_tmax_f"),
@@ -108,37 +113,59 @@ if __name__ == "__main__":
         except Exception:
             tz = dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
         run_ts = dt.datetime.now(tz=tz).isoformat()
+
         for (d, city, src), errs in abs_errs.items():
             mae = sum(errs) / len(errs)
             rmse = math.sqrt(sum(sq_errs[(d, city, src)]) / len(sq_errs[(d, city, src)]))
-            w.writerow({"run_ts": run_ts, "trade_date": d, "city": city, "metric_type": "mae_f", "source_name": src, "value": f"{mae:.4f}"})
-            w.writerow({"run_ts": run_ts, "trade_date": d, "city": city, "metric_type": "rmse_f", "source_name": src, "value": f"{rmse:.4f}"})
+            row_mae = {
+                "run_ts": run_ts,
+                "trade_date": d,
+                "city": city,
+                "metric_type": "mae_f",
+                "source_name": src,
+                "value": f"{mae:.4f}",
+            }
+            row_rmse = {
+                "run_ts": run_ts,
+                "trade_date": d,
+                "city": city,
+                "metric_type": "rmse_f",
+                "source_name": src,
+                "value": f"{rmse:.4f}",
+            }
+            w.writerow(row_mae)
+            w.writerow(row_rmse)
+            if db is not None:
+                db.insert_eval_metric_row(row_mae)  # type: ignore[attr-defined]
+                db.insert_eval_metric_row(row_rmse)  # type: ignore[attr-defined]
 
         for (d, city), hits in bucket_hits.items():
             if hits:
-                w.writerow(
-                    {
-                        "run_ts": run_ts,
-                        "trade_date": d,
-                        "city": city,
-                        "metric_type": "bucket_hit_rate",
-                        "source_name": "trade",
-                        "value": f"{sum(hits)/len(hits):.4f}",
-                    }
-                )
+                row_hit = {
+                    "run_ts": run_ts,
+                    "trade_date": d,
+                    "city": city,
+                    "metric_type": "bucket_hit_rate",
+                    "source_name": "trade",
+                    "value": f"{sum(hits)/len(hits):.4f}",
+                }
+                w.writerow(row_hit)
+                if db is not None:
+                    db.insert_eval_metric_row(row_hit)  # type: ignore[attr-defined]
 
         for (d, city), vals in pnls.items():
             if vals:
-                w.writerow(
-                    {
-                        "run_ts": run_ts,
-                        "trade_date": d,
-                        "city": city,
-                        "metric_type": "realized_pnl_dollars",
-                        "source_name": "trade",
-                        "value": f"{sum(vals):.2f}",
-                    }
-                )
+                row_pnl = {
+                    "run_ts": run_ts,
+                    "trade_date": d,
+                    "city": city,
+                    "metric_type": "realized_pnl_dollars",
+                    "source_name": "trade",
+                    "value": f"{sum(vals):.2f}",
+                }
+                w.writerow(row_pnl)
+                if db is not None:
+                    db.insert_eval_metric_row(row_pnl)  # type: ignore[attr-defined]
 
     print(f"Wrote daily metrics for {as_of} to {args.out_csv}")
 

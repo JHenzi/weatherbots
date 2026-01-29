@@ -14,6 +14,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 try:
+    import db  # type: ignore  # local Postgres helpers
+except Exception:  # pragma: no cover - defensive fallback when db.py missing
+    db = None  # type: ignore[assignment]
+
+try:
     import requests_cache  # type: ignore
 except ModuleNotFoundError:
     requests_cache = None
@@ -40,6 +45,17 @@ LATLON = {
     "fl": (25.77380, -80.19360),
 }
 
+PROVIDER_COLS: dict[str, str] = {
+    "open-meteo": "tmax_open_meteo",
+    "visual-crossing": "tmax_visual_crossing",
+    "tomorrow": "tmax_tomorrow",
+    "weatherapi": "tmax_weatherapi",
+    "google-weather": "tmax_google_weather",
+    "openweathermap": "tmax_openweathermap",
+    "pirateweather": "tmax_pirateweather",
+    "weather.gov": "tmax_weather_gov",
+}
+
 
 def _local_tz() -> dt.tzinfo:
     tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
@@ -58,12 +74,19 @@ def _safe_float(x) -> float | None:
         return None
     try:
         s = str(x).strip()
+        if not s:
+            return None
+        return float(s)
     except Exception:
         return None
-    if not s:
+
+
+def _parse_iso_dt(s: str) -> dt.datetime | None:
+    ss = (s or "").strip()
+    if not ss:
         return None
     try:
-        return float(s)
+        return dt.datetime.fromisoformat(ss.replace("Z", "+00:00"))
     except Exception:
         return None
 
@@ -185,11 +208,226 @@ def _append_intraday_row(path: str, row: dict) -> None:
         except Exception:
             # Best-effort: if migration fails, still append (worst case: row preserved but columns shifted).
             pass
+    payload = {k: row.get(k, "") for k in fieldnames}
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
-        w.writerow({k: row.get(k, "") for k in fieldnames})
+        w.writerow(payload)
+    if db is not None:
+        db.insert_intraday_snapshot_row(payload)  # type: ignore[attr-defined]
+
+
+def _load_recent_intraday_history(
+    path: str,
+    *,
+    city: str,
+    trade_date: str,
+    max_rows: int = 4,
+) -> list[dict]:
+    """
+    Load up to max_rows most recent intraday snapshots for (city, trade_date).
+    Used for lead-time tracking / per-provider volatility.
+    """
+    if not path or not os.path.exists(path):
+        return []
+    rows: list[tuple[dt.datetime, dict]] = []
+    try:
+        with open(path, "r", newline="") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                if not row:
+                    continue
+                if (row.get("city") or "").strip() != (city or "").strip():
+                    continue
+                if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
+                    continue
+                ts = _parse_iso_dt(row.get("timestamp") or "")
+                if ts is None:
+                    continue
+                rows.append((ts, row))
+    except Exception:
+        return []
+    if not rows:
+        return []
+    rows.sort(key=lambda t: t[0])
+    rows = rows[-max_rows:]
+    return [row for _, row in rows]
+
+
+def _compute_volatility_info(
+    history_rows: list[dict],
+    current_vals: dict[str, float],
+) -> dict[str, dict[str, float]]:
+    """
+    For each provider, compute:
+      - volatility: mean |delta| over the last up-to-3 deltas
+      - last_delta: most recent delta
+      - mean_level: mean forecast level across history+current
+
+    Deltas are consecutive differences in the provider's forecast for the same
+    (city, trade_date) across pulses.
+    """
+    info: dict[str, dict[str, float]] = {}
+    for src, col in PROVIDER_COLS.items():
+        cur = current_vals.get(src)
+        if cur is None:
+            continue
+        series: list[float] = []
+        for row in history_rows:
+            v = _safe_float(row.get(col))
+            if v is None:
+                continue
+            series.append(float(v))
+        series.append(float(cur))
+        if len(series) < 2:
+            volatility = 0.0
+            last_delta = 0.0
+        else:
+            deltas = [series[i + 1] - series[i] for i in range(len(series) - 1)]
+            recent = deltas[-3:]
+            volatility = sum(abs(d) for d in recent) / float(len(recent))
+            last_delta = deltas[-1]
+        mean_level = sum(series) / float(len(series)) if series else 0.0
+        info[src] = {
+            "volatility": float(volatility),
+            "last_delta": float(last_delta),
+            "mean_level": float(mean_level),
+        }
+    return info
+
+
+def _apply_volatility_weighting(
+    available: dict[str, float],
+    base_weights: dict[str, float],
+    history_rows: list[dict],
+) -> tuple[dict[str, float], float]:
+    """
+    Consensus 2.0:
+      - Start from base_weights (learned weights if available, else uniform).
+      - For each provider, compute volatility over the last few pulses.
+      - If volatility > 2°F OR >10% of its mean level, apply a 50% penalty.
+      - Agreement bonus: if two volatile providers share a similar last_delta
+        (same sign, similar magnitude), do NOT penalize them (treat as trend).
+
+    Returns:
+      - new_weights: renormalized dynamic weights for available providers.
+      - stability_score: 0..1 summarizing how many high-weight providers are
+        stable or in coherent trend (used for conviction_score).
+    """
+    if not available:
+        return ({}, 0.5)
+
+    vol_info = _compute_volatility_info(history_rows, available)
+
+    # If we don't have learned weights, start from uniform over available.
+    bw: dict[str, float]
+    if base_weights:
+        bw = {k: float(v) for k, v in base_weights.items() if k in available}
+        total = sum(max(0.0, v) for v in bw.values())
+        if total <= 0:
+            n = len(available)
+            bw = {k: 1.0 / float(n) for k in available.keys()}
+        else:
+            bw = {k: float(v) / float(total) for k, v in bw.items()}
+    else:
+        n = len(available)
+        bw = {k: 1.0 / float(n) for k in available.keys()}
+
+    # First pass: identify which providers are "volatile".
+    THRESH_DEG = 2.0
+    is_volatile: dict[str, bool] = {}
+    for src in available.keys():
+        meta = vol_info.get(src) or {}
+        vol = float(meta.get("volatility", 0.0))
+        mean_level = abs(float(meta.get("mean_level", 0.0)))
+        high_deg = vol > THRESH_DEG
+        high_pct = False
+        if mean_level > 0:
+            high_pct = vol > (0.10 * mean_level)
+        is_volatile[src] = bool(high_deg or high_pct)
+
+    # Second pass: agreement bonus for coherent high skew and penalties for outliers.
+    factors: dict[str, float] = {k: 1.0 for k in available.keys()}
+    for src in available.keys():
+        if not is_volatile.get(src, False):
+            continue
+        meta_i = vol_info.get(src) or {}
+        delta_i = float(meta_i.get("last_delta", 0.0))
+        if delta_i == 0.0:
+            # Flat but flagged volatile via threshold; still treat as noise.
+            factors[src] = 0.5
+            continue
+        sign_i = 1.0 if delta_i > 0 else -1.0
+        found_partner = False
+        for other in available.keys():
+            if other == src or not is_volatile.get(other, False):
+                continue
+            meta_j = vol_info.get(other) or {}
+            delta_j = float(meta_j.get("last_delta", 0.0))
+            if delta_j == 0.0:
+                continue
+            sign_j = 1.0 if delta_j > 0 else -1.0
+            if sign_j != sign_i:
+                continue
+            if abs(delta_j - delta_i) <= 1.0:
+                found_partner = True
+                break
+        if not found_partner:
+            # Volatile and not supported by another similarly-moving provider.
+            factors[src] = 0.5
+
+    # Third pass: staleness penalty. If most providers are updating in a common
+    # direction but one stays flat, treat that as "stale" and downweight it.
+    deltas = [
+        float((vol_info.get(src) or {}).get("last_delta", 0.0)) for src in available.keys()
+    ]
+    # Ignore tiny noise when inferring the pack's movement.
+    significant = [d for d in deltas if abs(d) >= 0.1]
+    if len(significant) >= 2:
+        try:
+            import statistics  # local import to avoid top-level dependency issues
+        except Exception:
+            statistics = None  # type: ignore[assignment]
+
+        if statistics is not None:
+            med = statistics.median(significant)
+            trend_mag = abs(med)
+            if trend_mag >= 0.5:
+                # Pack is moving meaningfully; penalize sources that are near-flat.
+                for src in available.keys():
+                    meta = vol_info.get(src) or {}
+                    d = float(meta.get("last_delta", 0.0))
+                    if abs(d) < 0.1:
+                        # Everyone else is updating in roughly the same direction,
+                        # this one is effectively unchanged → likely stale.
+                        factors[src] = min(float(factors.get(src, 1.0)), 0.5)
+
+    # Combine base weights with volatility factors and renormalize.
+    pre: dict[str, float] = {}
+    for src in available.keys():
+        w0 = float(bw.get(src, 0.0))
+        if w0 <= 0.0:
+            continue
+        f = float(factors.get(src, 1.0))
+        pre[src] = w0 * f
+    s = sum(pre.values())
+    if s <= 0:
+        new_weights = dict(bw)
+    else:
+        new_weights = {k: float(v) / float(s) for k, v in pre.items()}
+
+    # Stability score: share of weight on non-penalized providers (or coherent trends).
+    if not new_weights:
+        stability = 0.5
+    else:
+        stable_mass = sum(
+            new_weights[src]
+            for src in new_weights.keys()
+            if float(factors.get(src, 1.0)) >= 1.0
+        )
+        stability = max(0.0, min(1.0, float(stable_mass)))
+    return (new_weights, float(stability))
 
 
 def _migrate_intraday_forecasts_schema(path: str, new_fieldnames: list[str]) -> None:
@@ -246,8 +484,6 @@ def _write_predictions_latest(path: str, rows: list[dict]) -> None:
         "tmax_predicted",
         "tmax_lstm",
         "tmax_forecast",
-        "spread_f",
-        "confidence_score",
         "forecast_sources",
         "tmax_open_meteo",
         "tmax_visual_crossing",
@@ -257,6 +493,8 @@ def _write_predictions_latest(path: str, rows: list[dict]) -> None:
         "tmax_openweathermap",
         "tmax_pirateweather",
         "tmax_weather_gov",
+        "spread_f",
+        "confidence_score",
         "sources_used",
         "weights_used",
     ]
@@ -264,22 +502,55 @@ def _write_predictions_latest(path: str, rows: list[dict]) -> None:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         for r in rows:
+            # Ensure conviction_score doesn't leak into the CSV yet if it's not in the header.
+            # (We will add it to the history schema properly in a later step if needed).
             w.writerow({k: r.get(k, "") for k in fieldnames})
 
 
 def _append_predictions_history(path: str, latest_rows: list[dict], *, extra_fields: dict[str, str]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     write_header = not os.path.exists(path)
-    base_fields = list((latest_rows[0].keys()) if latest_rows else [])
-    out_fields = base_fields + [k for k in extra_fields.keys() if k not in base_fields]
+    
+    # Use the same canonical header as run_daily.py to avoid misalignment.
+    fieldnames = [
+        "date",
+        "city",
+        "tmax_predicted",
+        "tmax_lstm",
+        "tmax_forecast",
+        "forecast_sources",
+        "tmax_open_meteo",
+        "tmax_visual_crossing",
+        "tmax_tomorrow",
+        "tmax_weatherapi",
+        "tmax_google_weather",
+        "tmax_openweathermap",
+        "tmax_pirateweather",
+        "tmax_weather_gov",
+        "spread_f",
+        "confidence_score",
+        "sources_used",
+        "weights_used",
+        "run_ts",
+        "env",
+        "prediction_mode",
+        "blend_forecast_weight",
+        "refresh_history",
+        "retrain_lstm",
+    ]
+    
     with open(path, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=out_fields)
+        w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
         for r in latest_rows:
-            rr = dict(r)
+            rr = {k: r.get(k, "") for k in fieldnames if k in r}
             rr.update(extra_fields)
-            w.writerow(rr)
+            # Fill missing keys with empty strings to avoid DictWriter errors
+            row_to_write = {k: rr.get(k, "") for k in fieldnames}
+            w.writerow(row_to_write)
+            if db is not None:
+                db.insert_prediction_row(row_to_write)  # type: ignore[attr-defined]
 
 
 def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> float | None:
@@ -647,104 +918,178 @@ if __name__ == "__main__":
     pred_rows: list[dict] = []
     intraday_rows: list[dict] = []
 
-    for city in CITIES:
-        tmax_open_meteo = _try_call(forecast_tmax_open_meteo, city=city, trade_dt=trade_dt)
-        tmax_visual_crossing = _try_call(forecast_tmax_visual_crossing, city=city, trade_dt=trade_dt)
-        tmax_tomorrow = _try_call(forecast_tmax_tomorrow, city=city, trade_dt=trade_dt, _state=tomorrow_state)
-        tmax_weatherapi = _try_call(forecast_tmax_weatherapi, city=city, trade_dt=trade_dt)
-        tmax_google_weather = _try_call(forecast_tmax_google_weather, city=city, trade_dt=trade_dt)
-        tmax_openweathermap = _try_call(forecast_tmax_openweathermap, city=city, trade_dt=trade_dt)
-        tmax_pirateweather = _try_call(forecast_tmax_pirateweather, city=city, trade_dt=trade_dt)
-        tmax_weather_gov = _try_call(forecast_tmax_weather_gov, city=city, trade_dt=trade_dt)
+    # Lead 0/1: fetch and store forecasts for both today (lead 0) and tomorrow (lead 1).
+    lead_dates = [
+        trade_dt,
+        trade_dt + dt.timedelta(days=1),
+    ]
 
-        vals = {
-            "google-weather": tmax_google_weather,
-            "open-meteo": tmax_open_meteo,
-            "openweathermap": tmax_openweathermap,
-            "pirateweather": tmax_pirateweather,
-            "visual-crossing": tmax_visual_crossing,
-            "tomorrow": tmax_tomorrow,
-            "weatherapi": tmax_weatherapi,
-            "weather.gov": tmax_weather_gov,
-        }
-        available = {k: float(v) for k, v in vals.items() if v is not None}
+    for target_dt in lead_dates:
+        trade_date_str = target_dt.strftime("%Y-%m-%d")
+        for city in CITIES:
+            tmax_open_meteo = _try_call(forecast_tmax_open_meteo, city=city, trade_dt=target_dt)
+            tmax_visual_crossing = _try_call(
+                forecast_tmax_visual_crossing, city=city, trade_dt=target_dt
+            )
+            tmax_tomorrow = _try_call(
+                forecast_tmax_tomorrow, city=city, trade_dt=target_dt, _state=tomorrow_state
+            )
+            tmax_weatherapi = _try_call(forecast_tmax_weatherapi, city=city, trade_dt=target_dt)
+            tmax_google_weather = _try_call(
+                forecast_tmax_google_weather, city=city, trade_dt=target_dt
+            )
+            tmax_openweathermap = _try_call(
+                forecast_tmax_openweathermap, city=city, trade_dt=target_dt
+            )
+            tmax_pirateweather = _try_call(
+                forecast_tmax_pirateweather, city=city, trade_dt=target_dt
+            )
+            tmax_weather_gov = _try_call(forecast_tmax_weather_gov, city=city, trade_dt=target_dt)
 
-        w_city = _weights_for_city(weights_all, city)
-        weights_used: dict[str, float] = {k: float(w_city[k]) for k in available.keys() if k in w_city}
-        if not weights_used:
-            if available:
-                u = 1.0 / len(available)
-                weights_used = {k: u for k in available.keys()}
-        else:
-            s = sum(weights_used.values())
-            weights_used = (
-                {k: v / s for k, v in weights_used.items()}
-                if s > 0
-                else ({k: 1.0 / len(available) for k in available.keys()} if available else {})
+            vals = {
+                "google-weather": tmax_google_weather,
+                "open-meteo": tmax_open_meteo,
+                "openweathermap": tmax_openweathermap,
+                "pirateweather": tmax_pirateweather,
+                "visual-crossing": tmax_visual_crossing,
+                "tomorrow": tmax_tomorrow,
+                "weatherapi": tmax_weatherapi,
+                "weather.gov": tmax_weather_gov,
+            }
+            available = {k: float(v) for k, v in vals.items() if v is not None}
+
+            # Base weights: learned weights (if present) or uniform over available.
+            w_city = _weights_for_city(weights_all, city)
+            weights_used: dict[str, float] = {
+                k: float(w_city[k]) for k in available.keys() if k in w_city
+            }
+            if not weights_used:
+                if available:
+                    u = 1.0 / len(available)
+                    weights_used = {k: u for k in available.keys()}
+            else:
+                s = sum(weights_used.values())
+                weights_used = (
+                    {k: v / s for k, v in weights_used.items()}
+                    if s > 0
+                    else ({k: 1.0 / len(available) for k in available.keys()} if available else {})
+                )
+
+            # Lead-time tracking: look back at recent pulses for this (city, trade_date)
+            # and apply volatility-based dynamic weighting (Consensus 2.0).
+            history_rows = _load_recent_intraday_history(
+                args.out_csv,
+                city=city,
+                trade_date=trade_date_str,
+                max_rows=4,
+            )
+            weights_used, stability_score = _apply_volatility_weighting(
+                available, weights_used, history_rows
             )
 
-        mean_forecast = (
-            sum(weights_used[k] * available[k] for k in weights_used.keys()) if weights_used else None
-        )
-        sigma = float(statistics.pstdev(list(available.values()))) if len(available) > 1 else (0.0 if available else None)
-
-        # 1) Spread-based component (agreement between providers) from current sigma.
-        spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
-
-        # 2) Skill-based component from the learned weights.
-        skill_conf = _skill_from_weights(weights_used)
-
-        # 3) Combine spread and skill into the final confidence score.
-        spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
-        conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
-
-        row = {
-            "timestamp": _now_iso_local(),
-            "city": city,
-            "trade_date": trade_dt.strftime("%Y-%m-%d"),
-            "mean_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
-            "current_sigma": "" if sigma is None else f"{sigma:.4f}",
-            "tmax_open_meteo": "" if tmax_open_meteo is None else f"{tmax_open_meteo:.4f}",
-            "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
-            "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
-            "tmax_weatherapi": "" if tmax_weatherapi is None else f"{tmax_weatherapi:.4f}",
-            "tmax_google_weather": "" if tmax_google_weather is None else f"{tmax_google_weather:.4f}",
-            "tmax_openweathermap": "" if tmax_openweathermap is None else f"{tmax_openweathermap:.4f}",
-            "tmax_pirateweather": "" if tmax_pirateweather is None else f"{tmax_pirateweather:.4f}",
-            "tmax_weather_gov": "" if tmax_weather_gov is None else f"{tmax_weather_gov:.4f}",
-            "sources_used": ",".join([s for s in SOURCES_ORDER if s in available]),
-            "weights_used": ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]) if weights_used else "",
-        }
-        intraday_rows.append(row)
-        if not args.no_write:
-            _append_intraday_row(args.out_csv, row)
-            wrote += 1
-
-        if args.write_predictions:
-            spread_f = sigma if sigma is not None else ""
-            conf = "" if conf_final is None else f"{float(conf_final):.4f}"
-            pred_rows.append(
-                {
-                    "date": trade_dt.strftime("%Y-%m-%d"),
-                    "city": city,
-                    "tmax_predicted": "" if mean_forecast is None else f"{mean_forecast:.4f}",
-                    "tmax_lstm": "",
-                    "tmax_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
-                    "spread_f": "" if sigma is None else f"{float(sigma):.4f}",
-                    "confidence_score": conf,
-                    "forecast_sources": ",".join([s for s in SOURCES_ORDER if s in available]),
-                    "tmax_open_meteo": "" if tmax_open_meteo is None else f"{tmax_open_meteo:.4f}",
-                    "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
-                    "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
-                    "tmax_weatherapi": "" if tmax_weatherapi is None else f"{tmax_weatherapi:.4f}",
-                    "tmax_google_weather": "" if tmax_google_weather is None else f"{tmax_google_weather:.4f}",
-                    "tmax_openweathermap": "" if tmax_openweathermap is None else f"{tmax_openweathermap:.4f}",
-                    "tmax_pirateweather": "" if tmax_pirateweather is None else f"{tmax_pirateweather:.4f}",
-                    "tmax_weather_gov": "" if tmax_weather_gov is None else f"{tmax_weather_gov:.4f}",
-                    "sources_used": ",".join([s for s in SOURCES_ORDER if s in available]),
-                    "weights_used": ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]) if weights_used else "",
-                }
+            mean_forecast = (
+                sum(weights_used[k] * available[k] for k in weights_used.keys()) if weights_used else None
             )
+            sigma = (
+                float(statistics.pstdev(list(available.values())))
+                if len(available) > 1
+                else (0.0 if available else None)
+            )
+
+            # 1) Spread-based component (agreement between providers) from current sigma.
+            spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
+
+            # 2) Skill-based component from the learned weights.
+            skill_conf = _skill_from_weights(weights_used)
+
+            # 3) Combine spread and skill into the final confidence score.
+            spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
+            conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
+
+            # 4) Conviction score: blend confidence with stability of recent provider skews.
+            conviction_score: float | None
+            if conf_final is None:
+                conviction_score = None
+            else:
+                # conf_final is in [0, ~0.9]; stability_score is in [0,1].
+                # Rescale so that (high confidence & high stability) ≈ 1.0.
+                raw = float(conf_final) * float(stability_score)
+                conviction_score = max(0.0, min(1.0, raw / 0.9)) if raw > 0 else 0.0
+
+            ts_now = _now_iso_local()
+            row = {
+                "timestamp": ts_now,
+                "city": city,
+                "trade_date": trade_date_str,
+                "mean_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
+                "current_sigma": "" if sigma is None else f"{sigma:.4f}",
+                "tmax_open_meteo": "" if tmax_open_meteo is None else f"{tmax_open_meteo:.4f}",
+                "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
+                "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
+                "tmax_weatherapi": "" if tmax_weatherapi is None else f"{tmax_weatherapi:.4f}",
+                "tmax_google_weather": "" if tmax_google_weather is None else f"{tmax_google_weather:.4f}",
+                "tmax_openweathermap": "" if tmax_openweathermap is None else f"{tmax_openweathermap:.4f}",
+                "tmax_pirateweather": "" if tmax_pirateweather is None else f"{tmax_pirateweather:.4f}",
+                "tmax_weather_gov": "" if tmax_weather_gov is None else f"{tmax_weather_gov:.4f}",
+                "sources_used": ",".join([s for s in SOURCES_ORDER if s in available]),
+                "weights_used": ",".join(
+                    [f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]
+                )
+                if weights_used
+                else "",
+            }
+            intraday_rows.append(row)
+            if not args.no_write:
+                _append_intraday_row(args.out_csv, row)
+                wrote += 1
+
+            # Only the primary (lead 0) trade_date should drive predictions_latest.csv;
+            # tomorrow's lead (lead 1) is for tracking, not for today's trade job.
+            if args.write_predictions and target_dt == trade_dt:
+                spread_f = sigma if sigma is not None else ""
+                conf = "" if conf_final is None else f"{float(conf_final):.4f}"
+                conviction_str = (
+                    "" if conviction_score is None else f"{float(conviction_score):.4f}"
+                )
+                pred_rows.append(
+                    {
+                        "date": trade_date_str,
+                        "city": city,
+                        "tmax_predicted": "" if mean_forecast is None else f"{mean_forecast:.4f}",
+                        "tmax_lstm": "",
+                        "tmax_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
+                        "spread_f": "" if sigma is None else f"{float(sigma):.4f}",
+                        "confidence_score": conf,
+                        "conviction_score": conviction_str,
+                        "forecast_sources": ",".join([s for s in SOURCES_ORDER if s in available]),
+                        "tmax_open_meteo": "" if tmax_open_meteo is None else f"{tmax_open_meteo:.4f}",
+                        "tmax_visual_crossing": ""
+                        if tmax_visual_crossing is None
+                        else f"{tmax_visual_crossing:.4f}",
+                        "tmax_tomorrow": "" if tmax_tomorrow is None else f"{tmax_tomorrow:.4f}",
+                        "tmax_weatherapi": ""
+                        if tmax_weatherapi is None
+                        else f"{tmax_weatherapi:.4f}",
+                        "tmax_google_weather": ""
+                        if tmax_google_weather is None
+                        else f"{tmax_google_weather:.4f}",
+                        "tmax_openweathermap": ""
+                        if tmax_openweathermap is None
+                        else f"{tmax_openweathermap:.4f}",
+                        "tmax_pirateweather": ""
+                        if tmax_pirateweather is None
+                        else f"{tmax_pirateweather:.4f}",
+                        "tmax_weather_gov": ""
+                        if tmax_weather_gov is None
+                        else f"{tmax_weather_gov:.4f}",
+                        "sources_used": ",".join([s for s in SOURCES_ORDER if s in available]),
+                        "weights_used": ",".join(
+                            [f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())]
+                        )
+                        if weights_used
+                        else "",
+                    }
+                )
 
     if args.print:
         if args.print_format == "json":

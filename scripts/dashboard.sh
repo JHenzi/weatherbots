@@ -47,6 +47,24 @@ def _truthy(x: Any) -> bool:
     s = str(x or "").strip().lower()
     return s in ("1", "true", "yes", "y")
 
+def _fmt_rel_date(date_str: str, ref_dt: dt.date | None = None) -> str:
+    if not date_str:
+        return ""
+    try:
+        target = dt.datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+    except Exception:
+        return date_str
+    if ref_dt is None:
+        ref_dt = dt.datetime.now(TZ).date()
+    diff = (target - ref_dt).days
+    if diff == 0:
+        return "today"
+    if diff == 1:
+        return "tomorrow"
+    if diff == -1:
+        return "yesterday"
+    return date_str
+
 def _read_csv(path: str) -> list[dict[str, str]]:
     if not os.path.exists(path):
         return []
@@ -183,7 +201,7 @@ else:
     for r in preds:
         rows.append([
             _fmt_local(pred_ts_by_city.get((r.get("city") or "").strip(), "")),
-            r.get("date",""),
+            _fmt_rel_date(r.get("date","")),
             r.get("city",""),
             r.get("tmax_predicted",""),
             r.get("spread_f",""),
@@ -199,6 +217,7 @@ if not preds:
 else:
     cols_all = [
         ("city", "city"),
+        ("date", "date"),
         ("cons", "tmax_predicted"),
         ("goog", "tmax_google_weather"),
         ("om", "tmax_open_meteo"),
@@ -237,7 +256,14 @@ else:
 
     rows = []
     for r in rows_in:
-        rows.append([fmt(r.get(k)) for _, k in cols])
+        row_data = []
+        for h, k in cols:
+            val = r.get(k)
+            if k == "date":
+                row_data.append(_fmt_rel_date(val))
+            else:
+                row_data.append(fmt(val))
+        rows.append(row_data)
     _print_table([h for h, _ in cols], rows)
 print()
 
@@ -300,7 +326,7 @@ else:
         noninc = bool(diffs) and all(d <= 0 for d in diffs) and any(d < 0 for d in diffs)
         trend = "increasing" if nondec else ("decreasing" if noninc else "non_monotonic")
         rows.append([
-            trade_date,
+            _fmt_rel_date(trade_date),
             city,
             len(xs),
             f"{xs[-1]:.2f}",
@@ -331,7 +357,7 @@ else:
         max_loss = cost
         rows.append([
             t.get("run_ts",""),
-            t.get("trade_date",""),
+            _fmt_rel_date(t.get("trade_date","")),
             t.get("city",""),
             t.get("market_ticker",""),
             count,
@@ -364,7 +390,7 @@ if env_trades:
             continue
         cost = count * (yes_price / 100.0)
         max_profit = count * ((100 - yes_price) / 100.0)
-        open_rows.append([t.get("trade_date",""), t.get("city",""), t.get("market_ticker",""), count, yes_price, _fmt_money(cost), _fmt_money(max_profit)])
+        open_rows.append([_fmt_rel_date(t.get("trade_date","")), t.get("city",""), t.get("market_ticker",""), count, yes_price, _fmt_money(cost), _fmt_money(max_profit)])
 if not open_rows:
     print("  (none)")
 else:
@@ -386,7 +412,7 @@ else:
     rows = []
     for e in settled_rows[-limit:]:
         rows.append([
-            e.get("trade_date",""),
+            _fmt_rel_date(e.get("trade_date","")),
             e.get("city",""),
             e.get("chosen_market_ticker",""),
             e.get("yes_ask",""),
@@ -406,7 +432,7 @@ else:
     for d in env_decisions[-limit:]:
         rows.append([
             d.get("run_ts",""),
-            d.get("trade_date",""),
+            _fmt_rel_date(d.get("trade_date","")),
             d.get("city",""),
             d.get("decision",""),
             (d.get("reason","") or "")[:80],
