@@ -12,6 +12,25 @@ def _truthy(x: Any) -> bool:
     return s in ("1", "true", "yes", "y")
 
 
+def _fmt_rel_date(date_str: str, tz: dt.tzinfo, ref_dt: dt.date | None = None) -> str:
+    if not date_str:
+        return ""
+    try:
+        target = dt.datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+    except Exception:
+        return date_str
+    if ref_dt is None:
+        ref_dt = dt.datetime.now(tz).date()
+    diff = (target - ref_dt).days
+    if diff == 0:
+        return "today"
+    if diff == 1:
+        return "tomorrow"
+    if diff == -1:
+        return "yesterday"
+    return date_str
+
+
 def _read_csv(path: str) -> list[dict[str, str]]:
     if not os.path.exists(path):
         return []
@@ -266,6 +285,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
     eval_path = "Data/eval_history.csv"
     intraday_path = "Data/intraday_forecasts.csv"
 
+    tz = _get_tz()
     preds = _read_csv(pred_path)
     pred_hist = _read_csv(pred_hist_path)
     trades = _read_csv(trades_path)
@@ -301,7 +321,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         max_win = qty * ((100 - ask_c) / 100.0)
         open_trades.append(
             {
-                "trade_date": t.get("trade_date", ""),
+                "trade_date": _fmt_rel_date(t.get("trade_date", ""), tz),
                 "city": t.get("city", ""),
                 "ticker": t.get("market_ticker", ""),
                 "qty": qty,
@@ -359,7 +379,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         pred_rows.append(
             [
                 pred_run_ts_by_city.get((p.get("city") or "").strip(), ""),
-                p.get("date", ""),
+                _fmt_rel_date(p.get("date", ""), tz),
                 p.get("city", ""),
                 f"{_safe_float(p.get('tmax_predicted'), 0.0):.2f}" if p.get("tmax_predicted") else "",
                 f"{_safe_float(p.get('spread_f'), 0.0):.2f}" if p.get("spread_f") else "",
@@ -381,12 +401,12 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         )
         if st is None:
             # Columns: city, trade_date, n, last(F), trail_avg(F), sigma(F), trend, drift(F)
-            trailing_rows.append([city, trade_date or "", "0", "", "", "", "", ""])
+            trailing_rows.append([city, _fmt_rel_date(trade_date, tz) if trade_date else "", "0", "", "", "", "", ""])
             continue
         trailing_rows.append(
             [
                 city,
-                trade_date,
+                _fmt_rel_date(trade_date, tz),
                 str(st["n"]),
                 f"{float(st['last']):.2f}",
                 f"{float(st['avg']):.2f}" if st.get("avg") is not None else "",
@@ -406,7 +426,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         trade_rows.append(
             [
                 _fmt_dt(t.get("run_ts", "")),
-                t.get("trade_date", ""),
+                _fmt_rel_date(t.get("trade_date", ""), tz),
                 t.get("city", ""),
                 t.get("market_ticker", ""),
                 str(qty),
@@ -438,7 +458,7 @@ def _render(env: str, limit: int) -> dict[str, Any]:
         decision_rows.append(
             [
                 _fmt_dt(d.get("run_ts", "")),
-                d.get("trade_date", ""),
+                _fmt_rel_date(d.get("trade_date", ""), tz),
                 d.get("city", ""),
                 d.get("decision", ""),
                 (d.get("reason") or "")[:70],
@@ -615,15 +635,18 @@ def main():
                 preds_latest = [r for r in preds_latest if (r.get("city") or "").strip().lower() == city_focus]
 
             def f(row: dict[str, str], key: str) -> str:
-                # City is a string; everything else is numeric.
+                # City and date are strings; everything else is numeric.
                 if key == "city":
                     return (row.get("city") or "").strip()
+                if key == "date":
+                    return _fmt_rel_date(row.get("date", ""), tz)
                 v = (row.get(key) or "").strip()
                 return f"{_safe_float(v, 0.0):.2f}" if v else ""
 
             # Choose columns based on available width.
             all_cols_all = [
                 ("city", "city"),
+                ("date", "date"),
                 ("cons", "tmax_predicted"),
                 ("goog", "tmax_google_weather"),
                 ("om", "tmax_open_meteo"),

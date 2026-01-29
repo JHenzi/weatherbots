@@ -5,6 +5,11 @@ import json
 import os
 from collections import defaultdict
 
+try:
+    import db  # type: ignore  # local Postgres helpers
+except Exception:  # pragma: no cover - defensive fallback when db.py missing
+    db = None  # type: ignore[assignment]
+
 from truth_engine import get_actual_tmax_from_nws_cli
 
 
@@ -66,6 +71,8 @@ def _append_performance_rows(perf_path: str, rows: list[dict]) -> None:
             w.writeheader()
         for row in rows:
             w.writerow(row)
+            if db is not None:
+                db.insert_source_performance_row(row)  # type: ignore[attr-defined]
 
 
 def _load_performance_window(perf_path: str, *, city: str, source: str, start: dt.date, end: dt.date) -> list[float]:
@@ -150,15 +157,16 @@ def _append_weights_history(path: str, weights: dict) -> None:
             tz = dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
         run_ts = dt.datetime.now(tz=tz).isoformat()
         for city, payload in (weights or {}).items():
-            w.writerow(
-                {
-                    "run_ts": run_ts,
-                    "as_of": payload.get("as_of", ""),
-                    "city": city,
-                    "window_days": payload.get("window_days", ""),
-                    "weights_json": json.dumps(payload.get("weights", {}) or {}, sort_keys=True),
-                }
-            )
+            row = {
+                "run_ts": run_ts,
+                "as_of": payload.get("as_of", ""),
+                "city": city,
+                "window_days": payload.get("window_days", ""),
+                "weights_json": json.dumps(payload.get("weights", {}) or {}, sort_keys=True),
+            }
+            w.writerow(row)
+            if db is not None:
+                db.insert_weights_history_row(row)  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

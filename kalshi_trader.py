@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+try:
+    import db  # type: ignore  # local Postgres helpers
+except Exception:  # pragma: no cover - defensive fallback when db.py missing
+    db = None  # type: ignore[assignment]
+
 
 def _local_tz() -> datetime.tzinfo:
     tzname = (os.getenv("TZ") or "").strip() or "America/New_York"
@@ -317,6 +322,31 @@ def _sigma_size_scale(*, sigma: float, sigma_cap: float = 2.5) -> float:
     # linear between 1.5 and sigma_cap
     t = (float(sigma_cap) - float(sigma)) / (float(sigma_cap) - 1.5)
     return max(0.25, min(1.0, float(t)))
+
+
+def get_portfolio_positions(
+    client: KalshiHttpClient,
+    *,
+    count_filter: str = "position",
+    limit: int = 100,
+    cursor: str | None = None,
+) -> dict:
+    """
+    Fetch current portfolio positions from Kalshi (non-zero only if count_filter=position).
+    Returns { market_positions: [...], event_positions: [...], cursor: "..." }.
+    """
+    path = "/trade-api/v2/portfolio/positions"
+    params = {"limit": limit}
+    if count_filter:
+        params["count_filter"] = count_filter
+    if cursor:
+        params["cursor"] = cursor
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    full_path = f"{path}?{qs}" if qs else path
+    resp = client.get(full_path)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to fetch positions: {resp.status_code} {resp.text}")
+    return resp.json()
 
 
 def get_balance(client: KalshiHttpClient) -> dict:
@@ -648,11 +678,14 @@ def _append_eval_row(path: str, row: dict) -> None:
         "count",
         "send_orders",
     ]
+    payload = {k: row.get(k, "") for k in fieldnames}
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
-        w.writerow({k: row.get(k, "") for k in fieldnames})
+        w.writerow(payload)
+    if db is not None:
+        db.insert_eval_event_row(payload)  # type: ignore[attr-defined]
 
 
 def _append_decision(path: str, row: dict) -> None:
@@ -672,11 +705,14 @@ def _append_decision(path: str, row: dict) -> None:
         "decision",
         "reason",
     ]
+    payload = {k: row.get(k, "") for k in fieldnames}
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
-        w.writerow({k: row.get(k, "") for k in fieldnames})
+        w.writerow(payload)
+    if db is not None:
+        db.insert_decision_row(payload)  # type: ignore[attr-defined]
 
 
 def _already_traded(*, trades_log: str | None, env: str, trade_date: str, city: str) -> bool:
@@ -863,6 +899,22 @@ def make_trade(
 def _write_trade_log(path, env, trade_dt_str, city, series, event_ticker, market_ticker, subtitle, pred, side, count, yes_price, no_price, send_orders):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     write_header = not os.path.exists(path)
+    payload = {
+        "run_ts": _now_iso(),
+        "env": env,
+        "trade_date": trade_dt_str,
+        "city": city,
+        "series_ticker": series,
+        "event_ticker": event_ticker,
+        "market_ticker": market_ticker,
+        "market_subtitle": subtitle,
+        "pred_tmax_f": f"{pred:.4f}",
+        "side": side,
+        "count": int(count),
+        "yes_price": int(yes_price),
+        "no_price": int(no_price),
+        "send_orders": bool(send_orders),
+    }
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(
             f,
@@ -885,24 +937,9 @@ def _write_trade_log(path, env, trade_dt_str, city, series, event_ticker, market
         )
         if write_header:
             w.writeheader()
-        w.writerow(
-            {
-                "run_ts": _now_iso(),
-                "env": env,
-                "trade_date": trade_dt_str,
-                "city": city,
-                "series_ticker": series,
-                "event_ticker": event_ticker,
-                "market_ticker": market_ticker,
-                "market_subtitle": subtitle,
-                "pred_tmax_f": f"{pred:.4f}",
-                "side": side,
-                "count": int(count),
-                "yes_price": int(yes_price),
-                "no_price": int(no_price),
-                "send_orders": bool(send_orders),
-            }
-        )
+        w.writerow(payload)
+    if db is not None:
+        db.insert_trade_row(payload)  # type: ignore[attr-defined]
 
 
 def _parse_args():
@@ -1144,8 +1181,9 @@ if __name__ == "__main__":
             except ValueError:
                 continue
 
-    if args.side != "yes":
-        raise RuntimeError("This build is configured for YES-only trade selection. Use --side yes.")
+    # Remove the YES-only restriction to allow for hedging and NO-side trading.
+    # if args.side != "yes":
+    #     raise RuntimeError("This build is configured for YES-only trade selection. Use --side yes.")
 
     spent_total_dollars = 0.0
     spent_by_city: dict[str, float] = {c: 0.0 for c in CITY_ORDER}
@@ -1155,18 +1193,30 @@ if __name__ == "__main__":
         key = (trade_dt_str, city)
         row = preds.get(key)
         conf = None
+        conviction = None
         if row is not None:
             try:
                 conf = float(row.get("confidence_score")) if row.get("confidence_score") not in (None, "") else None
             except Exception:
                 conf = None
+            try:
+                conviction = float(row.get("conviction_score")) if row.get("conviction_score") not in (None, "") else None
+            except Exception:
+                conviction = None
         # Missing/low confidence shouldn't zero the city's budget; it should just downweight it.
         # Clamp to a floor so we still consider trades unless the guardrails explicitly skip them.
         if conf is None:
             conf_term = 1.0
         else:
-            conf_term = max(0.0, min(1.0, float(conf)))
-        conf_term = max(0.25, float(conf_term))
+            base_conf = max(0.0, min(1.0, float(conf)))
+            if conviction is not None:
+                conv_clamped = max(0.0, min(1.0, float(conviction)))
+                # Use conviction_score as a push/pull on confidence_score:
+                # effective_confidence is a blend of raw confidence and conviction.
+                effective_conf = 0.7 * base_conf + 0.3 * conv_clamped
+            else:
+                effective_conf = base_conf
+            conf_term = max(0.25, float(effective_conf))
         city_scores[city] = float(city_scores.get(city, 1.0)) * float(conf_term)
 
     s = sum(max(0.0, v) for v in city_scores.values())
@@ -1278,6 +1328,7 @@ if __name__ == "__main__":
 
         spread_f = None
         confidence = None
+        conviction = None
         try:
             spread_f = float(row.get("spread_f")) if row.get("spread_f") not in (None, "") else None
         except Exception:
@@ -1286,10 +1337,39 @@ if __name__ == "__main__":
             confidence = float(row.get("confidence_score")) if row.get("confidence_score") not in (None, "") else None
         except Exception:
             confidence = None
+        try:
+            conviction = float(row.get("conviction_score")) if row.get("conviction_score") not in (None, "") else None
+        except Exception:
+            conviction = None
+
+        # Combine confidence and conviction into a single effective confidence score.
+        effective_confidence = None
+        if confidence is not None:
+            base_conf = max(0.0, min(1.0, float(confidence)))
+            if conviction is not None:
+                conv_clamped = max(0.0, min(1.0, float(conviction)))
+                effective_confidence = 0.7 * base_conf + 0.3 * conv_clamped
+            else:
+                effective_confidence = base_conf
 
         # Enforce guardrail before doing any API lookups for the event.
-        if confidence is not None and confidence < args.min_confidence:
-            print(f"SKIP: confidence_score={confidence:.3f} < {args.min_confidence}")
+        if effective_confidence is not None and effective_confidence < args.min_confidence:
+            print(
+                "SKIP: effective_confidence="
+                f"{effective_confidence:.3f} < {args.min_confidence} "
+                + "("
+                + (
+                    f"confidence={confidence:.3f} "
+                    if confidence is not None
+                    else "confidence=? "
+                )
+                + (
+                    f"conviction={conviction:.3f}"
+                    if conviction is not None
+                    else "conviction=?"
+                )
+                + ")"
+            )
             if args.decisions_log:
                 _append_decision(
                     args.decisions_log,
@@ -1302,9 +1382,9 @@ if __name__ == "__main__":
                         "event_ticker": event_ticker,
                         "pred_tmax_f": f"{pred:.4f}",
                         "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
-                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
+                        "confidence_score": "" if effective_confidence is None else f"{effective_confidence:.4f}",
                         "decision": "skip",
-                        "reason": f"confidence<{args.min_confidence}",
+                        "reason": f"effective_confidence<{args.min_confidence}",
                     },
                 )
             continue

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Trader Live</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+        .trend-up { color: #f87171; }
+        .trend-down { color: #60a5fa; }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-400">Weather Trader <span class="text-white text-sm font-normal ml-2">Live Terminal</span></h1>
+            <div id="last-updated" class="text-slate-400 text-sm" title="NWS timestamps are UTC; displayed in your local timezone">Initializing...</div>
+        </header>
+
+        <!-- City Cards -->
+        <div id="city-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- Cards populated by JS -->
+        </div>
+
+        <!-- Sun Tracker -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <span class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
+                Sun Tracker (Warming Cycle Progress)
+            </h2>
+            <div id="sun-trackers" class="space-y-6">
+                <!-- Trackers populated by JS -->
+            </div>
+        </section>
+
+        <!-- Bet context: prediction vs forecast vs observation, trend, at risk -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <span class="w-3 h-3 bg-amber-500 rounded-full mr-2"></span>
+                Bet context — prediction, forecasts, observation, trend
+            </h2>
+            <p class="text-slate-400 text-sm mb-4">In context of our prediction: current delta, latest forecast vs prediction, observation vs bucket, sun status, trend. Are our bets at risk?</p>
+            <div id="bet-context" class="overflow-x-auto">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left: Active Positions -->
+            <div class="lg:col-span-2">
+                <section class="card rounded-xl p-6 mb-8">
+                    <h2 class="text-xl font-semibold mb-4 flex items-center">
+                        <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                        Active Positions & Risk
+                    </h2>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-slate-400 border-b border-slate-700">
+                                    <th class="pb-2">Market</th>
+                                    <th class="pb-2 text-center">Size</th>
+                                    <th class="pb-2 text-center">Current (bid/ask)</th>
+                                    <th class="pb-2 text-center">Temp</th>
+                                    <th class="pb-2 text-center">Distance</th>
+                                    <th class="pb-2 text-center">Risk</th>
+                                    <th class="pb-2 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-table">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card rounded-xl p-6">
+                    <h2 class="text-xl font-semibold mb-4">Temperature Trajectories</h2>
+                    <canvas id="trajectory-chart" height="150"></canvas>
+                </section>
+            </div>
+
+            <!-- Right: Hedge Advisor -->
+            <div>
+                <section class="card rounded-xl p-6 sticky top-6">
+                    <h2 class="text-xl font-semibold mb-4 text-amber-400">Risk / Sell Advisor</h2>
+                    <p class="text-slate-500 text-xs mb-3">Desktop alerts when a position is flagged. <button type="button" id="enable-notifications-btn" class="text-amber-400 hover:underline">Enable notifications</button></p>
+                    <div id="hedge-signals" class="space-y-4">
+                        <!-- Populated by JS -->
+                        <div class="text-slate-500 italic text-center py-8">Scanning for signals...</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let chart = null;
+
+        // Desktop notifications for urgent Risk/Sell signals (throttle 5 min per position)
+        const URGENT_NOTIFY_THROTTLE_MS = 5 * 60 * 1000;
+        let lastUrgentNotifyByTicker = {};
+
+        function showUrgentDesktopNotification(pos, bucketBase, minsToBreak) {
+            if (!('Notification' in window)) return;
+            const ticker = pos.ticker || pos.market_ticker || '';
+            const now = Date.now();
+            if (lastUrgentNotifyByTicker[ticker] && (now - lastUrgentNotifyByTicker[ticker]) < URGENT_NOTIFY_THROTTLE_MS) return;
+
+            if (Notification.permission === 'granted') {
+                lastUrgentNotifyByTicker[ticker] = now;
+                const city = (pos.city || '').toUpperCase();
+                const body = `${city} warming ${(pos.trend_1h != null ? pos.trend_1h.toFixed(1) : '')}°/hr. Bucket ${bucketBase}-${bucketBase + 1} in ~${minsToBreak} mins. Consider selling.`;
+                new Notification('Weather Trader — Urgent', { body, icon: '/favicon.ico' }).onclick = () => window.focus();
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(p => { if (p === 'granted') showUrgentDesktopNotification(pos, bucketBase, minsToBreak); });
+            }
+        }
+
+        async function updateDashboard() {
+            try {
+                const [obsRes, posRes, predRes, intradayRes, sunRes] = await Promise.all([
+                    fetch(API_BASE + '/observations'),
+                    fetch(API_BASE + '/positions'),
+                    fetch(API_BASE + '/predictions'),
+                    fetch(API_BASE + '/intraday'),
+                    fetch(API_BASE + '/sun')
+                ]);
+
+                const obsData = await obsRes.json();
+                const posData = await posRes.json();
+                const predData = await predRes.json();
+                const intradayData = await intradayRes.json();
+                const sunData = await sunRes.json();
+
+                const stations = obsData.stations || {};
+                const positions = (posData.positions || posData) || [];
+                const posError = posData.error || null;
+                renderCityCards(stations);
+                renderSunTrackers(stations, sunData);
+                renderBetContext(positions, stations, predData, intradayData, sunData);
+                renderPositions(positions, stations, posError);
+                renderHedges(positions, stations, predData);
+                
+                const lastTs = obsData.last_update ? new Date(obsData.last_update) : null;
+                document.getElementById('last-updated').textContent = lastTs
+                    ? 'Observations updated: ' + lastTs.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' })
+                    : 'Last refresh: ' + new Date().toLocaleTimeString();
+            } catch (err) {
+                console.error('Fetch error:', err);
+                document.getElementById('last-updated').textContent = 'API Offline';
+            }
+        }
+
+        function renderSunTrackers(stations, sunData) {
+            const container = document.getElementById('sun-trackers');
+            const cityNames = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+            const byCity = (sunData && sunData.by_city) ? sunData.by_city : {};
+            // Fallback: show one row per city from stations; if no sun API, use placeholder
+            const keys = (stations && Object.keys(stations).length) ? Object.keys(stations) : Object.keys(cityNames);
+            if (keys.length === 0) {
+                container.innerHTML = '<div class="text-slate-500 text-center py-4">No station data yet.</div>';
+                return;
+            }
+            container.innerHTML = '';
+            keys.forEach(key => {
+                const sun = byCity[key];
+                const progress = sun ? sun.progress : 0;
+                const status = sun ? sun.status : '—';
+                const label = cityNames[key] || key;
+                container.innerHTML += `
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-slate-300 font-medium">${label}</span>
+                            <span class="text-slate-400">${status} (${progress.toFixed(0)}%)</span>
+                        </div>
+                        <div class="w-full bg-slate-700 rounded-full h-2">
+                            <div class="bg-yellow-500 h-2 rounded-full transition-all duration-1000" style="width: ${progress}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // NWS observations are UTC; we display in viewer's local time and show timezone.
+        function formatObsTime(isoStr) {
+            if (!isoStr) return '—';
+            const d = new Date(isoStr);
+            return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+        }
+
+        function renderCityCards(stations) {
+            const container = document.getElementById('city-cards');
+            const cityNames = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+            if (!stations || Object.keys(stations).length === 0) {
+                container.innerHTML = '<div class="col-span-full card rounded-xl p-6 text-slate-500 text-center">Waiting for observations…</div>';
+                return;
+            }
+            container.innerHTML = '';
+            Object.entries(stations).forEach(([key, data]) => {
+                const trendIcon = data.trend_1h > 0 ? '↑' : '↓';
+                const trendClass = data.trend_1h > 0 ? 'trend-up' : 'trend-down';
+                const obsTime = formatObsTime(data.timestamp);
+                container.innerHTML += `
+                    <div class="card rounded-xl p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-slate-400 font-medium">${cityNames[key]}</span>
+                            <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${data.stid}</span>
+                        </div>
+                        <div class="text-3xl font-bold mb-1">${data.temp.toFixed(1)}°F</div>
+                        <div class="flex items-center text-sm">
+                            <span class="${trendClass} font-bold mr-1">${trendIcon}</span>
+                            <span class="${trendClass}">${Math.abs(data.trend_1h).toFixed(2)}°/hr</span>
+                            <span class="text-slate-500 ml-2">(${Math.abs(data.trend_10m).toFixed(2)} 10m)</span>
+                        </div>
+                        <div class="text-xs text-slate-500 mt-2 border-t border-slate-700 pt-2" title="NWS data is UTC; shown in your local time">Observed at ${obsTime}</div>
+                    </div>
+                `;
+            });
+        }
+
+        async function placeOrder(ticker, side, action, count, price) {
+            if (!confirm(`Are you sure you want to ${action} ${count} ${side.toUpperCase()} shares for ${ticker} at ${price}¢?`)) {
+                return;
+            }
+
+            try {
+                const resp = await fetch(API_BASE + '/trade/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ticker, side, action, count, price })
+                });
+                
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert('Order submitted successfully!');
+                    updateDashboard();
+                } else {
+                    alert('Order failed: ' + (data.detail || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Order error:', err);
+                alert('API error while submitting order');
+            }
+        }
+
+        // Limit sell: place a limit order to sell YES at a chosen price (prompts for price).
+        function limitSellOrder(ticker, count, defaultPrice) {
+            const priceStr = prompt('Limit sell price (¢):', String(defaultPrice || 1));
+            if (priceStr == null || priceStr === '') return;
+            const price = parseInt(priceStr, 10);
+            if (isNaN(price) || price < 1 || price > 99) {
+                alert('Enter a valid price between 1 and 99¢');
+                return;
+            }
+            placeOrder(ticker, 'yes', 'sell', count, price);
+        }
+
+        const cityLabels = { 'ny': 'NY', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+
+        // KXHIGHNY-26JAN29-B27.5 -> 2026-01-29
+        function parseEventTradeDate(ticker) {
+            if (!ticker) return null;
+            const match = ticker.match(/-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})/i);
+            if (!match) return null;
+            const months = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
+            const y = parseInt(match[1], 10);
+            const year = y < 50 ? 2000 + y : 1900 + y;
+            const month = months[match[2].toUpperCase()];
+            const day = parseInt(match[3], 10);
+            if (!month) return null;
+            const m = String(month).padStart(2, '0');
+            const d = String(day).padStart(2, '0');
+            return `${year}-${m}-${d}`;
+        }
+
+        function getPredictionFor(predictions, city, tradeDate) {
+            if (!Array.isArray(predictions) || !tradeDate) return null;
+            const row = predictions.find(p => (p.date === tradeDate || p.trade_date === tradeDate) && (p.city === city));
+            if (!row || row.tmax_predicted === undefined || row.tmax_predicted === '') return null;
+            const v = parseFloat(row.tmax_predicted);
+            return isNaN(v) ? null : v;
+        }
+
+        function getIntradayFor(intradayData, city, tradeDate) {
+            if (!intradayData || !intradayData.by_city_date) return null;
+            const byCity = intradayData.by_city_date[city];
+            if (!byCity) return null;
+            const row = byCity[tradeDate];
+            if (!row || row.mean_forecast == null) return null;
+            return { mean_forecast: row.mean_forecast, current_sigma: row.current_sigma, timestamp: row.timestamp };
+        }
+
+        function getSunStatusForCity(sunData, city) {
+            const byCity = (sunData && sunData.by_city) ? sunData.by_city : {};
+            const s = byCity[city];
+            if (s) return s.past_peak ? 'Has peaked' : 'Yet to peak';
+            return '—';
+        }
+
+        function renderBetContext(positions, stations, predictions, intradayData, sunData) {
+            const container = document.getElementById('bet-context');
+            if (!container) return;
+
+            if (!positions || positions.length === 0) {
+                container.innerHTML = '<div class="text-slate-500 text-center py-6">No open positions — bet context appears when you have positions.</div>';
+                return;
+            }
+
+            let html = '<table class="w-full text-left"><thead><tr class="text-slate-400 border-b border-slate-700">';
+            html += '<th class="pb-2 pr-4">Market</th>';
+            html += '<th class="pb-2 pr-4">Prediction</th>';
+            html += '<th class="pb-2 pr-4">Latest forecast</th>';
+            html += '<th class="pb-2 pr-4">Forecast Δ</th>';
+            html += '<th class="pb-2 pr-4">Observation</th>';
+            html += '<th class="pb-2 pr-4">Obs vs bucket</th>';
+            html += '<th class="pb-2 pr-4">In range?</th>';
+            html += '<th class="pb-2 pr-4">Sun</th>';
+            html += '<th class="pb-2 pr-4">Trend</th>';
+            html += '<th class="pb-2 pr-4">At risk?</th></tr></thead><tbody>';
+
+            positions.forEach(pos => {
+                const ticker = pos.ticker || pos.event_ticker || '';
+                const bucketMatch = ticker.match(/-B(\d+\.?\d*)/) || ticker.match(/-T(\d+\.?\d*)/);
+                const bucketBase = bucketMatch ? parseFloat(bucketMatch[1]) : null;
+                const isTopBucket = ticker.includes('-T');
+                const tradeDate = parseEventTradeDate(ticker);
+                const city = pos.city || '';
+                const pred = getPredictionFor(predictions, city, tradeDate);
+                const intraday = getIntradayFor(intradayData, city, tradeDate);
+                const obs = stations[city];
+                const obsTemp = obs ? obs.temp : null;
+                const trend1h = obs ? obs.trend_1h : null;
+
+                const forecastVal = intraday ? intraday.mean_forecast : null;
+                const forecastDelta = (pred != null && forecastVal != null) ? (forecastVal - pred) : null;
+                const obsDelta = (bucketBase != null && obsTemp != null) ? (obsTemp - bucketBase) : null;
+                let inRange = '—';
+                if (bucketBase != null && obsTemp != null) {
+                    if (isTopBucket) inRange = obsTemp >= bucketBase ? 'Yes' : 'No';
+                    else inRange = (obsTemp >= bucketBase && obsTemp < bucketBase + 1) ? 'Yes' : 'No';
+                }
+                const trendLabel = trend1h != null ? (trend1h > 0 ? 'Warming' : trend1h < 0 ? 'Cooling' : 'Flat') : '—';
+                const trendClass = trend1h > 0 ? 'trend-up' : trend1h < 0 ? 'trend-down' : 'text-slate-400';
+
+                let riskLabel = '—';
+                let riskClass = 'text-slate-400';
+                if (obs && bucketBase != null && trend1h != null) {
+                    const d = obsTemp - bucketBase;
+                    const movingTowardEdge = (d < 0 && trend1h > 0) || (d > 0 && trend1h < 0);
+                    if (Math.abs(d) < 1.0 && movingTowardEdge) { riskLabel = 'HIGH'; riskClass = 'text-red-400 font-bold'; }
+                    else if (Math.abs(d) < 2.0) { riskLabel = 'MED'; riskClass = 'text-amber-400'; }
+                    else { riskLabel = 'LOW'; riskClass = 'text-green-400'; }
+                }
+
+                const name = (cityLabels[city] || city) + (pos.market_subtitle ? ' — ' + (pos.market_subtitle || '').slice(0, 30) : '');
+                html += '<tr class="border-b border-slate-800 hover:bg-slate-800/50">';
+                html += '<td class="py-3 pr-4"><div class="font-medium">' + name + '</div><div class="text-xs text-slate-500 font-mono">' + ticker + '</div></td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (pred != null ? pred.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (forecastVal != null ? forecastVal.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (forecastDelta != null ? (forecastDelta >= 0 ? '+' : '') + forecastDelta.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (obsTemp != null ? obsTemp.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (obsDelta != null ? (obsDelta >= 0 ? '+' : '') + obsDelta.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4">' + inRange + '</td>';
+                html += '<td class="py-3 pr-4 text-sm">' + getSunStatusForCity(sunData, city) + '</td>';
+                html += '<td class="py-3 pr-4 ' + trendClass + '">' + trendLabel + (trend1h != null ? ' (' + trend1h.toFixed(2) + '/hr)' : '') + '</td>';
+                html += '<td class="py-3 pr-4 font-bold ' + riskClass + '">' + riskLabel + '</td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderPositions(positions, stations, posError) {
+            const table = document.getElementById('positions-table');
+            table.innerHTML = '';
+
+            if (posError) {
+                table.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-amber-400">' + posError + '</td></tr>';
+                return;
+            }
+            if (!positions || positions.length === 0) {
+                table.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">No open positions (live from Kalshi)</td></tr>';
+                return;
+            }
+
+            positions.forEach(pos => {
+                const ticker = pos.ticker || pos.market_ticker || '';
+                const count = pos.position != null ? pos.position : (pos.count || 0);
+                const obs = stations[pos.city];
+                const currentTemp = obs ? obs.temp : 'N/A';
+                const bucketMatch = ticker.match(/-B(\d+\.?\d*)/);
+                const bucketBase = bucketMatch ? parseFloat(bucketMatch[1]) : 0;
+                const distance = obs ? (obs.temp - bucketBase).toFixed(1) : 'N/A';
+                let riskColor = 'text-green-400';
+                let riskText = 'LOW';
+                if (obs && distance !== 'N/A') {
+                    const d = parseFloat(distance);
+                    const movingTowardEdge = (d < 0 && obs.trend_1h > 0) || (d > 0 && obs.trend_1h < 0);
+                    if (Math.abs(d) < 1.0 && movingTowardEdge) { riskColor = 'text-red-400'; riskText = 'HIGH'; }
+                    else if (Math.abs(d) < 2.0) { riskColor = 'text-amber-400'; riskText = 'MED'; }
+                }
+                const name = (cityLabels[pos.city] || pos.city || '') + (pos.market_subtitle ? ' — ' + pos.market_subtitle : '');
+                const bidAsk = (pos.yes_bid != null && pos.yes_ask != null) ? (pos.yes_bid + '¢ / ' + pos.yes_ask + '¢') : '—';
+                const exposure = pos.market_exposure_dollars != null ? '$' + parseFloat(pos.market_exposure_dollars).toFixed(2) : '—';
+
+                table.innerHTML += `
+                    <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
+                        <td class="py-4">
+                            <div class="font-medium">${name}</div>
+                            <div class="text-xs text-slate-500 font-mono">${ticker}</div>
+                        </td>
+                        <td class="text-center font-mono">${count}</td>
+                        <td class="text-center font-mono text-sm">${bidAsk}</td>
+                        <td class="text-center font-mono">${currentTemp}°</td>
+                        <td class="text-center font-mono">${distance !== 'N/A' ? (parseFloat(distance) >= 0 ? '+' : '') + distance : 'N/A'}</td>
+                        <td class="text-center font-bold ${riskColor}">${riskText}</td>
+                        <td class="text-right">
+                            <button onclick="placeOrder('${ticker.replace(/'/g, "\\'")}', 'yes', 'sell', ${count}, ${pos.yes_bid || 1})" class="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded text-xs font-semibold mr-2" title="Limit sell at current bid">SELL</button>
+                            <button onclick="limitSellOrder('${ticker.replace(/'/g, "\\'")}', ${count}, ${pos.yes_bid != null ? pos.yes_bid : pos.yes_ask || 1})" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-xs font-semibold" title="Place limit sell at your chosen price">LIMIT SELL</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderHedges(positions, stations, predictions) {
+            const container = document.getElementById('hedge-signals');
+            container.innerHTML = '';
+
+            let signalsFound = false;
+
+            positions.forEach(pos => {
+                const obs = stations[pos.city];
+                if (!obs) return;
+
+                const ticker = pos.ticker || pos.market_ticker;
+                const bucketMatch = ticker.match(/-B(\d+\.?\d*)/);
+                const bucketBase = bucketMatch ? parseFloat(bucketMatch[1]) : 0;
+                const distance = obs.temp - bucketBase;
+                
+                // Signal if warming rapidly toward the upper edge
+                if (distance > -1.5 && distance < 0 && obs.trend_1h > 1.0) {
+                    signalsFound = true;
+                    const minsToBreak = Math.round(Math.abs(distance / obs.trend_1h * 60));
+                    // Fire desktop notification (throttled per ticker)
+                    const posWithTrend = { ...pos, trend_1h: obs.trend_1h };
+                    showUrgentDesktopNotification(posWithTrend, bucketBase, minsToBreak);
+                    container.innerHTML += `
+                        <div class="bg-red-900/20 border border-red-500/50 rounded-lg p-4">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">URGENT</span>
+                                <span class="text-slate-400 text-xs">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <p class="text-sm mb-3">
+                                <strong>${pos.city.toUpperCase()}</strong> is warming at <strong>${obs.trend_1h.toFixed(1)}°/hr</strong>.
+                                Projected to break bucket <strong>${bucketBase}-${bucketBase+1}</strong> in approx <strong>${minsToBreak} mins</strong>.
+                                Reduce exposure by selling or placing a limit sell (hedging in other buckets is separate).
+                            </p>
+                            <div class="flex gap-2">
+                                <button onclick="placeOrder('${ticker.replace(/'/g, "\\'")}', 'yes', 'sell', ${pos.position || 0}, ${pos.yes_bid != null ? pos.yes_bid : 1})" class="flex-1 bg-slate-600 hover:bg-slate-500 py-2 rounded font-bold transition-colors">SELL AT BID</button>
+                                <button onclick="limitSellOrder('${ticker.replace(/'/g, "\\'")}', ${pos.position || 0}, ${pos.yes_bid != null ? pos.yes_bid : pos.yes_ask || 1})" class="flex-1 bg-red-600 hover:bg-red-500 py-2 rounded font-bold transition-colors">LIMIT SELL</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            if (!signalsFound) {
+                container.innerHTML = '<div class="text-slate-500 italic text-center py-8">No urgent sell signals. Markets are stable.</div>';
+            }
+        }
+
+        // Enable notifications button: request permission upfront
+        document.getElementById('enable-notifications-btn')?.addEventListener('click', () => {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            } else if (Notification.permission === 'granted') {
+                alert('Desktop notifications are already enabled.');
+            }
+        });
+
+        // Initial update and poll (5s so positions/prices stay in sync; WebSockets could be added later for real-time)
+        updateDashboard();
+        setInterval(updateDashboard, 5000);
+    </script>
+</body>
+</html>

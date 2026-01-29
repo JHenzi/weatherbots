@@ -3,6 +3,8 @@ services:
     build: .
     container_name: weather-trader
     restart: unless-stopped
+    depends_on:
+      - postgres
 
     # Persist logs, caches, models, and histories
     volumes:
@@ -31,8 +33,25 @@ services:
       # Container timezone (cron schedule uses this). Change as desired.
       TZ: America/New_York
 
+      # Postgres connection (used by db.py). Override in .env for production.
+      PGDATABASE_URL: postgresql://weather:weather@postgres:5432/weather
+
     # If you want the container timezone to match you (recommended for cron times),
     # set TZ (e.g. America/New_York). Otherwise cron runs in UTC.
     #environment:
     #  - TZ=America/New_York
 
+  postgres:
+    image: postgres:16
+    container_name: weather-trader-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: weather
+      POSTGRES_PASSWORD: weather
+      POSTGRES_DB: weather
+      TZ: America/New_York
+    volumes:
+      # Bind-mount for durable database storage.
+      - ./pgdata:/var/lib/postgresql/data
