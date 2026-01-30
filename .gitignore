@@ -5,3 +5,4 @@ gooony.txt
 *.key
 *.p8
 .venv/
+pgdata/

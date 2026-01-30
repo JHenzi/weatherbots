@@ -61,3 +61,12 @@ This plan outlines the creation of a modern, web-based operational dashboard for
 4. **Phase 4: Operational Integration**
    - Add a "Launch Dashboard" command to the main bot.
    - Configure a Docker port (e.g., `8080`) in `docker-compose.yml` for easy access.
+
+## 5. Observation source vs NWS Time Series Viewer
+
+The dashboard uses **api.weather.gov** (`/stations/{STID}/observations`) and displays the **most recent observation** by timestamp. The [NWS Time Series Viewer](https://www.weather.gov/wrh/timeseries) (e.g. `?site=KMDW&hourly=true`) can show different values because:
+
+- **Our dashboard**: Latest raw observation (e.g. 12:54 UTC) — real-time.
+- **NWS Time Series (hourly=true)**: Only "hourly" observations (timestamp minutes 51–59 for NWS/FAA stations), i.e. one reading per hour.
+
+So Chicago (KMDW) may show 34°F on our dashboard and 33°F on the Time Series if we’re using a newer observation than the last hourly mark. Both are from the same station; we just use *latest* and they use *hourly*. Each city card links to the NWS Time Series for that station so you can compare.

@@ -44,6 +44,24 @@ def _safe_float(x: str | None) -> float | None:
         return None
 
 
+def _load_eval_rows_for_date(as_of: dt.date, eval_csv: str):
+    """Load eval rows for as_of from Postgres (if enabled) or CSV. Yields dicts with trade_date, city, settlement_tmax_f, etc."""
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            rows = db.get_eval_events_for_date(as_of.strftime("%Y-%m-%d"))
+            for row in rows:
+                yield row
+            return
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for daily metrics")
+    if not os.path.exists(eval_csv):
+        raise RuntimeError(f"Missing eval CSV: {eval_csv}")
+    with open(eval_csv, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            yield row
+
+
 if __name__ == "__main__":
     args = _parse_args()
     if args.as_of_date:
@@ -51,43 +69,44 @@ if __name__ == "__main__":
     else:
         as_of = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).date()
 
-    if not os.path.exists(args.eval_csv):
-        raise RuntimeError(f"Missing eval CSV: {args.eval_csv}")
-
     # Metrics keyed by (date, city, source)
     abs_errs: dict[tuple[str, str, str], list[float]] = defaultdict(list)
     sq_errs: dict[tuple[str, str, str], list[float]] = defaultdict(list)
     bucket_hits: dict[tuple[str, str], list[int]] = defaultdict(list)
     pnls: dict[tuple[str, str], list[float]] = defaultdict(list)  # dollars
 
-    with open(args.eval_csv, "r", newline="") as f:
-        r = csv.DictReader(f)
-        for row in r:
-            d = (row.get("trade_date") or "").strip()
-            if d != as_of.strftime("%Y-%m-%d"):
-                continue
-            city = (row.get("city") or "").strip()
-            if not city:
-                continue
-            actual = _safe_float(row.get("settlement_tmax_f"))
-            if actual is None:
-                continue
+    for row in _load_eval_rows_for_date(as_of, args.eval_csv):
+        d = (row.get("trade_date") or "").strip()
+        if isinstance(d, dt.date):
+            d = d.strftime("%Y-%m-%d")
+        if d != as_of.strftime("%Y-%m-%d"):
+            continue
+        city = (row.get("city") or "").strip()
+        if not city:
+            continue
+        actual = _safe_float(row.get("settlement_tmax_f"))
+        if actual is None:
+            continue
 
-            # bucket hit and pnl for the chosen trade
-            hit = row.get("bucket_hit")
-            if hit in ("0", "1"):
-                bucket_hits[(d, city)].append(int(hit))
-            pnl = _safe_float(row.get("realized_pnl_dollars"))
-            if pnl is not None:
-                pnls[(d, city)].append(pnl)
+        # bucket hit and pnl for the chosen trade
+        hit = row.get("bucket_hit")
+        if hit in ("0", "1"):
+            bucket_hits[(d, city)].append(int(hit))
+        elif hit is True or hit == 1:
+            bucket_hits[(d, city)].append(1)
+        elif hit is False or hit == 0:
+            bucket_hits[(d, city)].append(0)
+        pnl = _safe_float(row.get("realized_pnl_dollars"))
+        if pnl is not None:
+            pnls[(d, city)].append(pnl)
 
-            for src, col in SOURCES:
-                pred = _safe_float(row.get(col))
-                if pred is None:
-                    continue
-                err = abs(pred - actual)
-                abs_errs[(d, city, src)].append(err)
-                sq_errs[(d, city, src)].append((pred - actual) ** 2)
+        for src, col in SOURCES:
+            pred = _safe_float(row.get(col))
+            if pred is None:
+                continue
+            err = abs(pred - actual)
+            abs_errs[(d, city, src)].append(err)
+            sq_errs[(d, city, src)].append((pred - actual) ** 2)
 
     # Write one row per (date, city, source) plus city-level trade metrics.
     os.makedirs(os.path.dirname(args.out_csv) or ".", exist_ok=True)

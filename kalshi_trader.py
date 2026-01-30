@@ -224,27 +224,21 @@ def get_intraday_gate(
     - the mean_forecast is monotonic across the window (all increasing OR all decreasing)
     - current_sigma (final snapshot) < sigma_cap
     """
-    if not intraday_csv or not os.path.exists(intraday_csv):
-        return None
     window = max(2, int(window))
-
     rows: list[tuple[datetime.datetime, float, float]] = []  # (ts, mean, sigma)
-    try:
-        with open(intraday_csv, "r", newline="") as f:
-            r = csv.DictReader(f)
-            for row in r:
-                if not row:
-                    continue
-                if (row.get("city") or "").strip() != (city or "").strip():
-                    continue
-                if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
-                    continue
+
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            snapshots = db.get_recent_intraday_snapshots(
+                city_code=city, trade_date=trade_date, limit=window
+            )
+            for row in snapshots:
                 ts = _parse_iso_dt(row.get("timestamp") or "")
                 if ts is None:
                     continue
                 mf = row.get("mean_forecast")
                 sg = row.get("current_sigma")
-                if mf in (None, "") or sg in (None, ""):
+                if mf is None or sg is None:
                     continue
                 try:
                     mean_f = float(mf)
@@ -254,8 +248,40 @@ def get_intraday_gate(
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=_local_tz())
                 rows.append((ts, mean_f, sigma_f))
-    except Exception:
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for intraday gate")
+            rows = []
+
+    if not rows and (not intraday_csv or not os.path.exists(intraday_csv)):
         return None
+    if not rows:
+        try:
+            with open(intraday_csv, "r", newline="") as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    if not row:
+                        continue
+                    if (row.get("city") or "").strip() != (city or "").strip():
+                        continue
+                    if (row.get("trade_date") or "").strip() != (trade_date or "").strip():
+                        continue
+                    ts = _parse_iso_dt(row.get("timestamp") or "")
+                    if ts is None:
+                        continue
+                    mf = row.get("mean_forecast")
+                    sg = row.get("current_sigma")
+                    if mf in (None, "") or sg in (None, ""):
+                        continue
+                    try:
+                        mean_f = float(mf)
+                        sigma_f = float(sg)
+                    except Exception:
+                        continue
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=_local_tz())
+                    rows.append((ts, mean_f, sigma_f))
+        except Exception:
+            return None
 
     if not rows:
         return None
@@ -722,6 +748,11 @@ def _already_traded(*, trades_log: str | None, env: str, trade_date: str, city: 
 
     We only treat rows with send_orders==True as "already traded" so dry-runs don't block live runs.
     """
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            return db.get_already_traded(env, trade_date, city)
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for idempotency")
     if not trades_log:
         return False
     if not os.path.exists(trades_log):
@@ -760,6 +791,12 @@ def _load_allocation_scores(
 
     Score is higher when MAE is lower and hit-rate is higher.
     """
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            return db.get_allocation_scores(trade_dt, window_days)
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for allocation scores")
+
     if not metrics_csv or not os.path.exists(metrics_csv):
         return {}
 

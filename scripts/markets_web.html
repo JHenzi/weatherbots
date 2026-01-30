@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Markets — Weather Trader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-5xl mx-auto">
+        <header class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-4">
+                <a href="/" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>
+                <h1 class="text-2xl font-bold text-cyan-400">New Kalshi Markets</h1>
+            </div>
+            <button type="button" id="refresh-btn" class="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded text-sm font-semibold">Refresh</button>
+        </header>
+
+        <section class="card rounded-xl p-4 mb-6">
+            <h2 class="text-sm font-semibold text-slate-300 mb-3">Filters</h2>
+            <div class="flex flex-wrap items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="hide-sports" checked class="rounded">
+                    <span class="text-sm">Hide sports</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="only-mentions" class="rounded">
+                    <span class="text-sm">Only mention markets</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <span class="text-sm text-slate-400">Category:</span>
+                    <input type="text" id="filter-category" placeholder="e.g. mentions, climate" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm w-40">
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="only-last-7-days" checked class="rounded">
+                    <span class="text-sm">Only recently created (last 7 days)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="all-open" class="rounded">
+                    <span class="text-sm">Show all open (no date filter)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="only-climate" checked class="rounded">
+                    <span class="text-sm">Only climate/weather</span>
+                </label>
+            </div>
+        </section>
+
+        <section class="card rounded-xl p-6">
+            <p class="text-slate-400 text-sm mb-4">Feed uses cache; if stale we refetch. Use Refresh to update. Sorted by market created time, newest first.</p>
+            <div id="markets-loading" class="text-slate-500 text-center py-8">Loading markets…</div>
+            <div id="markets-error" class="hidden text-amber-400 text-center py-4"></div>
+            <div id="markets-list" class="space-y-2 overflow-x-auto">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function buildParams() {
+            const params = new URLSearchParams();
+            if (document.getElementById('hide-sports').checked) params.set('hide_sports', 'true');
+            if (document.getElementById('only-mentions').checked) params.set('only_mentions', 'true');
+            if (document.getElementById('all-open').checked) {
+                params.set('all_open', 'true');
+            } else {
+                params.set('max_age_days', document.getElementById('only-last-7-days').checked ? '7' : '30');
+            }
+            const cat = document.getElementById('filter-category').value.trim();
+            if (cat) params.set('category', cat);
+            return params.toString();
+        }
+
+        function isDefaultFilters() {
+            return document.getElementById('hide-sports').checked &&
+                !document.getElementById('only-mentions').checked &&
+                document.getElementById('only-last-7-days').checked &&
+                !document.getElementById('all-open').checked &&
+                !document.getElementById('filter-category').value.trim() &&
+                document.getElementById('only-climate').checked;
+        }
+
+        function isHiddenMarket(m) {
+            const s = ((m.series_ticker || '') + ' ' + (m.event_ticker || '') + ' ' + (m.event_title || '')).toLowerCase();
+            return /mve-sport-mutli-game|mve-sport-multi-game/.test(s);
+        }
+
+        function isClimateMarket(m) {
+            const title = ((m.event_title || '') + ' ' + (m.market_subtitle || '') + ' ' + (m.market_title || '') + ' ' + (m.category || '')).toLowerCase();
+            const series = (m.series_ticker || '').toLowerCase();
+            if (series.startsWith('kx')) return true;
+            if (/climate|weather|temperature|high\s*temp|°f|degrees\s*f/.test(title)) return true;
+            if (/kxhigh|temperature|max\s*temp/.test(title)) return true;
+            return false;
+        }
+
+        const MAX_RENDER_MARKETS = 80; // cap DOM size to avoid browser OOM with huge lists
+        function renderMarkets(data) {
+            const listEl = document.getElementById('markets-list');
+            const errorEl = document.getElementById('markets-error');
+            listEl.innerHTML = '';
+            errorEl.classList.add('hidden');
+            if (data.error) {
+                errorEl.textContent = data.error;
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            let markets = (data.markets || []).filter(m => !isHiddenMarket(m));
+            if (document.getElementById('only-climate').checked) {
+                markets = markets.filter(isClimateMarket);
+            }
+            if (markets.length === 0) {
+                listEl.innerHTML = '<div class="text-slate-500 text-center py-8">No markets match the filters.</div>';
+                return;
+            }
+            const total = markets.length;
+            const toRender = markets.slice(0, MAX_RENDER_MARKETS);
+            const caption = total > MAX_RENDER_MARKETS
+                ? `${toRender.length} of ${total} market(s) — newest first`
+                : `${total} market(s) — newest first`;
+            listEl.innerHTML = `<div class="text-slate-500 text-xs mb-3">${caption}</div>`;
+            toRender.forEach(m => {
+                const name = m.event_title + (m.market_subtitle ? ': ' + m.market_subtitle : (m.market_title ? ': ' + m.market_title : ''));
+                const created = m.created_time ? new Date(m.created_time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—';
+                const category = m.category ? `<span class="text-slate-500 text-xs">${m.category}</span>` : '';
+                const link = m.market_url || '#';
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between gap-4 py-3 border-b border-slate-700/50 hover:bg-slate-800/50 rounded px-3';
+                row.innerHTML = `
+                    <div class="min-w-0 flex-1">
+                        <a href="${link}" target="_blank" rel="noopener" class="text-cyan-400 hover:underline font-medium block truncate" title="${(m.market_ticker || '')}">${escapeHtml(name)}</a>
+                        <div class="flex items-center gap-2 mt-0.5">${category} <span class="text-slate-500 text-xs">${escapeHtml(created)}</span></div>
+                    </div>
+                    <a href="${link}" target="_blank" rel="noopener" class="shrink-0 bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs font-semibold">Open on Kalshi →</a>
+                `;
+                listEl.appendChild(row);
+            });
+        }
+
+        async function loadMarkets() {
+            const listEl = document.getElementById('markets-list');
+            const loadingEl = document.getElementById('markets-loading');
+            const errorEl = document.getElementById('markets-error');
+            listEl.innerHTML = '';
+            loadingEl.classList.remove('hidden');
+            errorEl.classList.add('hidden');
+
+            try {
+                const qs = buildParams();
+                const url = API_BASE + '/kalshi/markets' + (qs ? '?' + qs : '');
+                const res = await fetch(url);
+                const data = await res.json();
+
+                loadingEl.classList.add('hidden');
+                window._lastMarketsData = data;
+                renderMarkets(data);
+            } catch (err) {
+                loadingEl.classList.add('hidden');
+                errorEl.textContent = err.message || 'Failed to load markets';
+                errorEl.classList.remove('hidden');
+            }
+        }
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        document.getElementById('refresh-btn').addEventListener('click', loadMarkets);
+        document.getElementById('hide-sports').addEventListener('change', loadMarkets);
+        document.getElementById('only-mentions').addEventListener('change', loadMarkets);
+        document.getElementById('only-last-7-days').addEventListener('change', loadMarkets);
+        document.getElementById('all-open').addEventListener('change', function() {
+            if (this.checked) document.getElementById('only-last-7-days').checked = false;
+        });
+        document.getElementById('only-last-7-days').addEventListener('change', function() {
+            if (this.checked) document.getElementById('all-open').checked = false;
+        });
+        document.getElementById('filter-category').addEventListener('change', loadMarkets);
+        document.getElementById('only-climate').addEventListener('change', function() {
+            const data = window._lastMarketsData;
+            if (data) { renderMarkets(data); } else { loadMarkets(); }
+        });
+
+        // Initial load (uses cache; if stale API refetches)
+        loadMarkets();
+        // WebSocket live updates disabled for now; use Refresh to update.
+    </script>
+</body>
+</html>
