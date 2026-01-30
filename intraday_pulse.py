@@ -229,6 +229,13 @@ def _load_recent_intraday_history(
     Load up to max_rows most recent intraday snapshots for (city, trade_date).
     Used for lead-time tracking / per-provider volatility.
     """
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            return db.get_recent_intraday_snapshots(
+                city_code=city, trade_date=trade_date, limit=max_rows
+            )
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for intraday history")
     if not path or not os.path.exists(path):
         return []
     rows: list[tuple[dt.datetime, dict]] = []

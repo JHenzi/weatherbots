@@ -257,3 +257,18 @@ Intraday signal: ok=True n=4 trend=increasing sigma=1.255 (no sizing impact)
 Selected bucket from forecast(mu): '70° to 71°' (mu=69.99) → market=KXHIGHMIA-26JAN29-B70.5 ask=55¢ depth=1 (px=orderbook)
 Pred_mean=69.99 | chosen_bucket='70° to 71°' | market=KXHIGHMIA-26JAN29-B70.5
 Order submitted: KXHIGHMIA-26JAN29-B70.5
+[trade] 2026-01-30T03:00:02+00:00 trade_date=2026-01-30 (final 22:00 fetch)
+[intraday_pulse.py] done start=2026-01-29T22:00:03.372032-05:00 trade_date=2026-01-30 cities_written=4 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+WARNING: could not fetch Kalshi balance; using configured caps only (Failed to fetch balance: 401 {"error":{"code":"authentication_error","message":"authentication_error","details":"NOT_FOUND"}})
+Per-run cap=$50.00 (configured; balance unavailable)
+City budget caps: ny=$12.50, il=$12.50, tx=$12.50, fl=$12.50 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-30 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.886 (no sizing impact)
+Traceback (most recent call last):
+  File "/app/kalshi_trader.py", line 1357, in <module>
+    event_payload = get_event(client, event_ticker)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/kalshi_trader.py", line 111, in get_event
+    raise RuntimeError(f"Failed to fetch event {event_ticker}: {resp.status_code} {resp.text}")
+RuntimeError: Failed to fetch event KXHIGHNY-26JAN30: 404 {"error":{"code":"not_found","message":"not found","service":"query-exchange"}}

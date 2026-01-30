@@ -38,6 +38,11 @@ def _parse_args():
 
 
 def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            return db.get_predictions_for_date(trade_date)
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for predictions")
     by_city: dict[str, dict] = {}
     with open(path, "r", newline="") as f:
         r = csv.DictReader(f)
@@ -76,6 +81,11 @@ def _append_performance_rows(perf_path: str, rows: list[dict]) -> None:
 
 
 def _load_performance_window(perf_path: str, *, city: str, source: str, start: dt.date, end: dt.date) -> list[float]:
+    if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
+        try:
+            return db.get_source_performance_window(city, source, start, end)
+        except Exception as e:
+            print(f"Postgres read failed ({e}), falling back to CSV for performance window")
     if not os.path.exists(perf_path):
         return []
     errs: list[float] = []

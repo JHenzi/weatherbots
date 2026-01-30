@@ -1,8 +1,9 @@
 import os
-from typing import Any, Dict, Mapping, Optional
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Mapping, Optional
 
 import psycopg2
-from psycopg2.extras import Json
+from psycopg2.extras import Json, RealDictCursor
 
 
 """
@@ -12,6 +13,7 @@ Goals:
 - Centralize connection handling via PGDATABASE_URL / DATABASE_URL.
 - Provide small helpers for inserting rows that mirror the CSV log schemas.
 - Be safe to disable via ENABLE_PG_WRITE (no-ops when false/misconfigured).
+- Support reads via ENABLE_PG_READ with query helpers that return CSV-like shapes.
 """
 
 
@@ -28,6 +30,17 @@ def _pg_enabled() -> bool:
     - Missing/false => all insert helpers become no-ops.
     """
     flag = os.getenv("ENABLE_PG_WRITE", "")
+    return str(flag).strip().lower() in ("1", "true", "yes", "y")
+
+
+def _pg_read_enabled() -> bool:
+    """
+    Global gate for Postgres reads (hybrid mode).
+
+    - ENABLE_PG_READ=true (or 1/yes/y) enables reading from Postgres; scripts fall back to CSV on failure.
+    - Missing/false => scripts use CSV only.
+    """
+    flag = os.getenv("ENABLE_PG_READ", "")
     return str(flag).strip().lower() in ("1", "true", "yes", "y")
 
 
@@ -59,30 +72,48 @@ def _log_once(msg: str) -> None:
         _PG_ERROR_LOGGED = True
 
 
-def _get_conn():
+def _get_conn_internal():
     """
-    Return a cached psycopg2 connection, or None if disabled/misconfigured.
+    Return a cached psycopg2 connection when either ENABLE_PG_WRITE or ENABLE_PG_READ is set.
+    Used by both write and read paths.
     """
     global _PG_CONN, _PG_DISABLED
-    if _PG_DISABLED or not _pg_enabled():
+    if _PG_DISABLED:
         return None
-
+    if not _pg_enabled() and not _pg_read_enabled():
+        return None
     if _PG_CONN is not None:
         return _PG_CONN
-
     dsn = _get_dsn()
     if not dsn:
         _PG_DISABLED = True
-        _log_once("PGDATABASE_URL/DATABASE_URL not set; skipping Postgres writes.")
+        _log_once("PGDATABASE_URL/DATABASE_URL not set; skipping Postgres.")
         return None
-
     try:
         _PG_CONN = psycopg2.connect(dsn)
     except Exception as e:  # pragma: no cover - defensive
         _PG_DISABLED = True
-        _log_once(f"Failed to connect to Postgres ({e}); disabling ENABLE_PG_WRITE for this run.")
+        _log_once(f"Failed to connect to Postgres ({e}); disabling Postgres for this run.")
         return None
     return _PG_CONN
+
+
+def _get_conn():
+    """
+    Return a cached psycopg2 connection for writes, or None if writes disabled/misconfigured.
+    """
+    if not _pg_enabled():
+        return None
+    return _get_conn_internal()
+
+
+def _get_read_conn():
+    """
+    Return a cached psycopg2 connection for reads, or None if reads disabled/misconfigured.
+    """
+    if not _pg_read_enabled():
+        return None
+    return _get_conn_internal()
 
 
 def _with_cursor(fn) -> None:
@@ -634,6 +665,295 @@ def insert_weights_history_row(row: Mapping[str, Any]) -> None:
         )
 
     _with_cursor(_work)
+
+
+# --- Read helpers (used when ENABLE_PG_READ=true; return CSV-like shapes) ---
+
+
+def get_already_traded(env: str, trade_date: str, city_code: str) -> bool:
+    """
+    Idempotency guard: True if we have already placed (or attempted) a live trade
+    for this env + trade_date + city. Uses trades table; only send_orders=true counts.
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    trade_d = _parse_date_safe(trade_date)
+    if trade_d is None:
+        return False
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT 1
+            FROM trades t
+            JOIN cities c ON c.id = t.city_id
+            WHERE t.env = %s AND t.trade_date = %s AND c.code = %s AND t.send_orders = true
+            LIMIT 1
+            """,
+            (str(env).strip(), trade_d, str(city_code).strip().lower()),
+        )
+        row = cur.fetchone()
+    return row is not None
+
+
+def get_allocation_scores(trade_date: date, window_days: int) -> Dict[str, float]:
+    """
+    Per-city allocation scores from eval_metrics over the window [trade_date - window_days, trade_date - 1].
+    Uses mae_f/consensus and bucket_hit_rate/trade; returns dict[city_code, score] (higher = better).
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    start = trade_date - timedelta(days=int(window_days))
+    end = trade_date - timedelta(days=1)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT c.code AS city, em.metric_type, em.source_name, em.value
+            FROM eval_metrics em
+            JOIN cities c ON c.id = em.city_id
+            WHERE em.trade_date >= %s AND em.trade_date <= %s
+            """,
+            (start, end),
+        )
+        rows = cur.fetchall()
+    mae_sum: Dict[str, float] = {}
+    mae_n: Dict[str, int] = {}
+    hit_sum: Dict[str, float] = {}
+    hit_n: Dict[str, int] = {}
+    for r in rows:
+        city = (r.get("city") or "").strip()
+        mtype = (r.get("metric_type") or "").strip()
+        src = (r.get("source_name") or "").strip()
+        val = r.get("value")
+        if not city or val is None:
+            continue
+        try:
+            v = float(val)
+        except Exception:
+            continue
+        if mtype == "mae_f" and src == "consensus":
+            mae_sum[city] = mae_sum.get(city, 0.0) + v
+            mae_n[city] = mae_n.get(city, 0) + 1
+        if mtype == "bucket_hit_rate" and src == "trade":
+            hit_sum[city] = hit_sum.get(city, 0.0) + v
+            hit_n[city] = hit_n.get(city, 0) + 1
+    scores: Dict[str, float] = {}
+    for city in ("ny", "il", "tx", "fl"):
+        mae = (mae_sum.get(city, 0.0) / mae_n[city]) if mae_n.get(city) else None
+        hit = (hit_sum.get(city, 0.0) / hit_n[city]) if hit_n.get(city) else None
+        mae_term = 1.0 / (1.0 + float(mae) * float(mae)) if mae is not None and mae >= 0.0 else 1.0
+        hit_term = (0.5 + max(0.0, min(1.0, float(hit)))) if hit is not None else 1.0
+        scores[city] = float(mae_term) * float(hit_term)
+    return scores
+
+
+def get_recent_intraday_snapshots(
+    city_code: str,
+    trade_date: str,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    """
+    Up to `limit` most recent intraday snapshots for (city_code, trade_date).
+    Returns list of dicts with CSV-like keys: timestamp, city, trade_date, mean_forecast,
+    current_sigma, tmax_open_meteo, tmax_visual_crossing, etc. (from provider_values).
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    trade_d = _parse_date_safe(trade_date)
+    if trade_d is None:
+        return []
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT c.code AS city, i.snapshot_ts, i.trade_date, i.mean_forecast, i.current_sigma,
+                   i.provider_values, i.sources_used, i.weights_used
+            FROM intraday_snapshots i
+            JOIN cities c ON c.id = i.city_id
+            WHERE c.code = %s AND i.trade_date = %s
+            ORDER BY i.snapshot_ts ASC
+            """,
+            (str(city_code).strip().lower(), trade_d),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return []
+    # Take last `limit` and convert to CSV-like dicts
+    rows = rows[-limit:]
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        pv = r.get("provider_values") or {}
+        if isinstance(pv, str):
+            pv = _parse_json_safe(pv)
+        row_dict: Dict[str, Any] = {
+            "timestamp": (r.get("snapshot_ts") or "").isoformat() if r.get("snapshot_ts") else "",
+            "city": r.get("city") or "",
+            "trade_date": (r.get("trade_date") or "").strftime("%Y-%m-%d") if r.get("trade_date") else "",
+            "mean_forecast": r.get("mean_forecast"),
+            "current_sigma": r.get("current_sigma"),
+            "sources_used": r.get("sources_used"),
+            "weights_used": r.get("weights_used"),
+        }
+        _pv_to_csv = {
+            "open-meteo": "tmax_open_meteo",
+            "visual-crossing": "tmax_visual_crossing",
+            "tomorrow": "tmax_tomorrow",
+            "weatherapi": "tmax_weatherapi",
+            "google-weather": "tmax_google_weather",
+            "openweathermap": "tmax_openweathermap",
+            "pirateweather": "tmax_pirateweather",
+            "weather.gov": "tmax_weather_gov",
+        }
+        for k, v in pv.items():
+            row_dict[_pv_to_csv.get(k, f"tmax_{k.replace('-', '_')}")] = v
+        out.append(row_dict)
+    return out
+
+
+def get_source_performance_window(
+    city_code: str,
+    source_name: str,
+    start: date,
+    end: date,
+) -> List[float]:
+    """
+    Absolute errors for (city_code, source_name) in [start, end], ordered by date.
+    Returns list[float] of absolute_error values.
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT sp.absolute_error
+            FROM source_performance sp
+            JOIN cities c ON c.id = sp.city_id
+            WHERE c.code = %s AND sp.source_name = %s AND sp.date >= %s AND sp.date <= %s
+            ORDER BY sp.date ASC
+            """,
+            (str(city_code).strip().lower(), str(source_name).strip(), start, end),
+        )
+        rows = cur.fetchall()
+    return [float(r[0]) for r in rows if r[0] is not None]
+
+
+def get_predictions_for_date(trade_date: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Latest prediction row per city for trade_date. Returns dict[city_code, row]
+    with CSV-like keys (date, city, tmax_predicted, tmax_lstm, ...).
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    trade_d = _parse_date_safe(trade_date)
+    if trade_d is None:
+        return {}
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT c.code AS city, p.trade_date, p.run_ts, p.env,
+                   p.tmax_predicted, p.tmax_lstm, p.tmax_forecast, p.spread_f,
+                   p.confidence_score, p.conviction_score, p.forecast_sources,
+                   p.provider_values, p.sources_used, p.weights_used,
+                   p.prediction_mode, p.blend_forecast_weight, p.refresh_history, p.retrain_lstm
+            FROM predictions p
+            JOIN cities c ON c.id = p.city_id
+            WHERE p.trade_date = %s
+            ORDER BY p.run_ts DESC
+            """,
+            (trade_d,),
+        )
+        rows = cur.fetchall()
+    by_city: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        city = (r.get("city") or "").strip()
+        if not city or city in by_city:
+            continue
+        pv = r.get("provider_values") or {}
+        if isinstance(pv, str):
+            pv = _parse_json_safe(pv)
+        row_dict: Dict[str, Any] = {
+            "date": (r.get("trade_date") or "").strftime("%Y-%m-%d") if r.get("trade_date") else "",
+            "city": city,
+            "run_ts": str(r.get("run_ts") or ""),
+            "timestamp": str(r.get("run_ts") or ""),
+            "env": r.get("env"),
+            "tmax_predicted": r.get("tmax_predicted"),
+            "tmax_lstm": r.get("tmax_lstm"),
+            "tmax_forecast": r.get("tmax_forecast"),
+            "spread_f": r.get("spread_f"),
+            "confidence_score": r.get("confidence_score"),
+            "conviction_score": r.get("conviction_score"),
+            "forecast_sources": r.get("forecast_sources"),
+            "sources_used": r.get("sources_used"),
+            "weights_used": r.get("weights_used"),
+            "prediction_mode": r.get("prediction_mode"),
+            "blend_forecast_weight": r.get("blend_forecast_weight"),
+            "refresh_history": r.get("refresh_history"),
+            "retrain_lstm": r.get("retrain_lstm"),
+        }
+        for k, v in pv.items():
+            col = "tmax_" + k.replace("-", "_")
+            row_dict[col] = v
+        by_city[city] = row_dict
+    return by_city
+
+
+def get_eval_events_for_date(trade_date: str) -> List[Dict[str, Any]]:
+    """
+    Eval events for trade_date where settlement_tmax_f is present.
+    Returns list of dicts with CSV-like keys: trade_date, city, settlement_tmax_f,
+    bucket_hit, realized_pnl_dollars, mu_tmax_f, tmax_open_meteo, etc.
+    """
+    conn = _get_read_conn()
+    if conn is None:
+        raise RuntimeError("Postgres read not enabled or not connected")
+    trade_d = _parse_date_safe(trade_date)
+    if trade_d is None:
+        return []
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT c.code AS city, e.trade_date,
+                   e.settlement_tmax_f, e.bucket_hit, e.realized_pnl_dollars,
+                   e.mu_tmax_f, e.tmax_open_meteo, e.tmax_visual_crossing,
+                   e.tmax_tomorrow, e.tmax_weatherapi, e.tmax_lstm
+            FROM eval_events e
+            JOIN cities c ON c.id = e.city_id
+            WHERE e.trade_date = %s AND e.settlement_tmax_f IS NOT NULL
+            """,
+            (trade_d,),
+        )
+        rows = cur.fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        d = (r.get("trade_date") or "").strftime("%Y-%m-%d") if r.get("trade_date") else ""
+        row_dict: Dict[str, Any] = {
+            "trade_date": d,
+            "city": (r.get("city") or "").strip(),
+            "settlement_tmax_f": r.get("settlement_tmax_f"),
+            "bucket_hit": r.get("bucket_hit"),
+            "realized_pnl_dollars": r.get("realized_pnl_dollars"),
+            "mu_tmax_f": r.get("mu_tmax_f"),
+            "tmax_open_meteo": r.get("tmax_open_meteo"),
+            "tmax_visual_crossing": r.get("tmax_visual_crossing"),
+            "tmax_tomorrow": r.get("tmax_tomorrow"),
+            "tmax_weatherapi": r.get("tmax_weatherapi"),
+            "tmax_lstm": r.get("tmax_lstm"),
+        }
+        out.append(row_dict)
+    return out
+
+
+def _parse_date_safe(s: Optional[str]) -> Optional[date]:
+    if not s or not str(s).strip():
+        return None
+    try:
+        return datetime.strptime(str(s).strip()[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
 
 
 def _parse_json_safe(raw: Any) -> Dict[str, Any]:

@@ -4,22 +4,22 @@ overview: Finalize the transition to Postgres by implementing a "Postgres-First,
 todos:
   - id: db_read_layer
     content: Implement ENABLE_PG_READ and Query Helpers in db.py
-    status: pending
+    status: completed
   - id: update_trader
     content: Update kalshi_trader.py (Idempotency, Allocation, Intraday Gate)
-    status: pending
+    status: completed
   - id: update_pulse
     content: Update intraday_pulse.py (Volatility/Dynamic Weights)
-    status: pending
+    status: completed
   - id: update_metrics
     content: Update daily_metrics.py (Aggregation Logic)
-    status: pending
+    status: completed
   - id: update_calibration
     content: Update calibrate_sources.py (Performance Window Loading)
-    status: pending
+    status: completed
   - id: verify_full_system
     content: End-to-end verification with ENABLE_PG_READ=true
-    status: pending
+    status: completed
 isProject: false
 ---
 

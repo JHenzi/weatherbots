@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Weather Trader Live</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; }
         .card { background-color: #1e293b; border: 1px solid #334155; }
@@ -16,24 +15,32 @@
 <body class="p-6">
     <div class="max-w-7xl mx-auto">
         <header class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-blue-400">Weather Trader <span class="text-white text-sm font-normal ml-2">Live Terminal</span></h1>
+            <div class="flex items-center gap-4">
+                <h1 class="text-3xl font-bold text-blue-400">Weather Trader <span class="text-white text-sm font-normal ml-2">Live Terminal</span></h1>
+                <a href="/markets" class="text-cyan-400 hover:text-cyan-300 text-sm font-medium">New Markets</a>
+            </div>
             <div id="last-updated" class="text-slate-400 text-sm" title="NWS timestamps are UTC; displayed in your local timezone">Initializing...</div>
         </header>
 
-        <!-- City Cards -->
+        <!-- City Cards (with Sun Tracker in each card) -->
         <div id="city-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <!-- Cards populated by JS -->
         </div>
 
-        <!-- Sun Tracker -->
+        <!-- Risk / Sell Advisor and At Risk (moved up) -->
         <section class="card rounded-xl p-6 mb-8">
-            <h2 class="text-xl font-semibold mb-4 flex items-center">
-                <span class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
-                Sun Tracker (Warming Cycle Progress)
-            </h2>
-            <div id="sun-trackers" class="space-y-6">
-                <!-- Trackers populated by JS -->
+            <h2 class="text-xl font-semibold mb-4 text-amber-400">Risk / Sell Advisor</h2>
+            <p class="text-slate-500 text-xs mb-3">Desktop alerts when a position is flagged. <button type="button" id="enable-notifications-btn" class="text-amber-400 hover:underline">Enable notifications</button></p>
+            <div id="hedge-signals" class="space-y-4">
+                <div class="text-slate-500 italic text-center py-8">Scanning for signals...</div>
             </div>
+            <section class="mt-8">
+                <h3 class="text-lg font-semibold mb-3 text-cyan-400">At-risk brackets (BUY NO)</h3>
+                <p class="text-slate-500 text-xs mb-3">Current temp approaching bracket upper bound, 30‑min warming strong, projected high &gt; bracket high → consider BUY NO on that bracket if priced well.</p>
+                <div id="at-risk-brackets" class="space-y-4">
+                    <div class="text-slate-500 italic text-center py-4">Scanning...</div>
+                </div>
+            </section>
         </section>
 
         <!-- Bet context: prediction vs forecast vs observation, trend, at risk -->
@@ -42,67 +49,68 @@
                 <span class="w-3 h-3 bg-amber-500 rounded-full mr-2"></span>
                 Bet context — prediction, forecasts, observation, trend
             </h2>
-            <p class="text-slate-400 text-sm mb-4">In context of our prediction: current delta, latest forecast vs prediction, observation vs bucket, sun status, trend. Are our bets at risk?</p>
+            <p class="text-slate-400 text-sm mb-4">In context of our prediction: forecast high for the day vs prediction, observation vs bucket, sun status, trend. Are our bets at risk?</p>
             <div id="bet-context" class="overflow-x-auto">
                 <!-- Populated by JS -->
             </div>
         </section>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Left: Active Positions -->
-            <div class="lg:col-span-2">
-                <section class="card rounded-xl p-6 mb-8">
-                    <h2 class="text-xl font-semibold mb-4 flex items-center">
-                        <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
-                        Active Positions & Risk
-                    </h2>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="text-slate-400 border-b border-slate-700">
-                                    <th class="pb-2">Market</th>
-                                    <th class="pb-2 text-center">Size</th>
-                                    <th class="pb-2 text-center">Current (bid/ask)</th>
-                                    <th class="pb-2 text-center">Temp</th>
-                                    <th class="pb-2 text-center">Distance</th>
-                                    <th class="pb-2 text-center">Risk</th>
-                                    <th class="pb-2 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="positions-table">
-                                <!-- Populated by JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card rounded-xl p-6">
-                    <h2 class="text-xl font-semibold mb-4">Temperature Trajectories</h2>
-                    <canvas id="trajectory-chart" height="150"></canvas>
-                </section>
+        <!-- Next trade predictions (from predictions_latest) -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <span class="w-3 h-3 bg-violet-500 rounded-full mr-2"></span>
+                Next trade — predictions, confidence, sources &amp; weights
+            </h2>
+            <p class="text-slate-400 text-sm mb-4">Model prediction for the next trade date per city. Each column is that source’s forecast (°F). Color: cold → mild → warm.</p>
+            <div id="predictions-table-wrap" class="overflow-x-auto">
+                <!-- Populated by JS -->
             </div>
+        </section>
 
-            <!-- Right: Hedge Advisor -->
-            <div>
-                <section class="card rounded-xl p-6 sticky top-6">
-                    <h2 class="text-xl font-semibold mb-4 text-amber-400">Risk / Sell Advisor</h2>
-                    <p class="text-slate-500 text-xs mb-3">Desktop alerts when a position is flagged. <button type="button" id="enable-notifications-btn" class="text-amber-400 hover:underline">Enable notifications</button></p>
-                    <div id="hedge-signals" class="space-y-4">
+        <!-- Active Positions -->
+        <section class="card rounded-xl p-6">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                Active Positions & Risk
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="text-slate-400 border-b border-slate-700">
+                            <th class="pb-2">Market</th>
+                            <th class="pb-2 text-center">Size</th>
+                            <th class="pb-2 text-center">Current (bid/ask)</th>
+                            <th class="pb-2 text-center" title="Unrealized P/L at current bid">P/L now</th>
+                            <th class="pb-2 text-center" title="P/L if YES wins (settles at 100¢)">P/L if won</th>
+                            <th class="pb-2 text-center" title="Max observed so far today">Obs high</th>
+                            <th class="pb-2 text-center" title="Obs high minus bucket">Distance</th>
+                            <th class="pb-2 text-center">Risk</th>
+                            <th class="pb-2 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table">
                         <!-- Populated by JS -->
-                        <div class="text-slate-500 italic text-center py-8">Scanning for signals...</div>
-                    </div>
-                </section>
+                    </tbody>
+                </table>
             </div>
-        </div>
+        </section>
     </div>
 
     <script>
         const API_BASE = '/api';
-        let chart = null;
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(s);
+            return div.innerHTML;
+        }
 
         // Desktop notifications for urgent Risk/Sell signals (throttle 5 min per position)
         const URGENT_NOTIFY_THROTTLE_MS = 5 * 60 * 1000;
         let lastUrgentNotifyByTicker = {};
+        // At-risk bracket BUY NO notifications (throttle 5 min per suggested ticker)
+        let lastAtRiskNotifyByTicker = {};
 
         function showUrgentDesktopNotification(pos, bucketBase, minsToBreak) {
             if (!('Notification' in window)) return;
@@ -120,14 +128,30 @@
             }
         }
 
+        function showAtRiskBracketNotification(item) {
+            if (!('Notification' in window)) return;
+            const ticker = item.suggested_ticker || '';
+            const now = Date.now();
+            if (lastAtRiskNotifyByTicker[ticker] && (now - lastAtRiskNotifyByTicker[ticker]) < URGENT_NOTIFY_THROTTLE_MS) return;
+            if (Notification.permission === 'granted') {
+                lastAtRiskNotifyByTicker[ticker] = now;
+                const city = (item.city || '').toUpperCase();
+                const body = `${city} ${item.bucket_base}-${item.bracket_high}° bracket at risk (warming ${item.trend_30m.toFixed(1)}°/hr, proj high ${item.projected_high}°). Consider BUY NO on ${ticker} if priced well.`;
+                new Notification('Weather Trader — BUY NO opportunity', { body, icon: '/favicon.ico' }).onclick = () => window.focus();
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(p => { if (p === 'granted') showAtRiskBracketNotification(item); });
+            }
+        }
+
         async function updateDashboard() {
             try {
-                const [obsRes, posRes, predRes, intradayRes, sunRes] = await Promise.all([
+                const [obsRes, posRes, predRes, intradayRes, sunRes, atRiskRes] = await Promise.all([
                     fetch(API_BASE + '/observations'),
                     fetch(API_BASE + '/positions'),
                     fetch(API_BASE + '/predictions'),
                     fetch(API_BASE + '/intraday'),
-                    fetch(API_BASE + '/sun')
+                    fetch(API_BASE + '/sun'),
+                    fetch(API_BASE + '/at_risk_brackets')
                 ]);
 
                 const obsData = await obsRes.json();
@@ -135,15 +159,17 @@
                 const predData = await predRes.json();
                 const intradayData = await intradayRes.json();
                 const sunData = await sunRes.json();
+                const atRiskData = await atRiskRes.json();
 
                 const stations = obsData.stations || {};
                 const positions = (posData.positions || posData) || [];
                 const posError = posData.error || null;
-                renderCityCards(stations);
-                renderSunTrackers(stations, sunData);
+                renderCityCards(stations, sunData);
                 renderBetContext(positions, stations, predData, intradayData, sunData);
+                renderPredictionsTable(predData);
                 renderPositions(positions, stations, posError);
                 renderHedges(positions, stations, predData);
+                renderAtRiskBrackets(atRiskData);
                 
                 const lastTs = obsData.last_update ? new Date(obsData.last_update) : null;
                 document.getElementById('last-updated').textContent = lastTs
@@ -155,36 +181,6 @@
             }
         }
 
-        function renderSunTrackers(stations, sunData) {
-            const container = document.getElementById('sun-trackers');
-            const cityNames = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
-            const byCity = (sunData && sunData.by_city) ? sunData.by_city : {};
-            // Fallback: show one row per city from stations; if no sun API, use placeholder
-            const keys = (stations && Object.keys(stations).length) ? Object.keys(stations) : Object.keys(cityNames);
-            if (keys.length === 0) {
-                container.innerHTML = '<div class="text-slate-500 text-center py-4">No station data yet.</div>';
-                return;
-            }
-            container.innerHTML = '';
-            keys.forEach(key => {
-                const sun = byCity[key];
-                const progress = sun ? sun.progress : 0;
-                const status = sun ? sun.status : '—';
-                const label = cityNames[key] || key;
-                container.innerHTML += `
-                    <div>
-                        <div class="flex justify-between text-sm mb-1">
-                            <span class="text-slate-300 font-medium">${label}</span>
-                            <span class="text-slate-400">${status} (${progress.toFixed(0)}%)</span>
-                        </div>
-                        <div class="w-full bg-slate-700 rounded-full h-2">
-                            <div class="bg-yellow-500 h-2 rounded-full transition-all duration-1000" style="width: ${progress}%"></div>
-                        </div>
-                    </div>
-                `;
-            });
-        }
-
         // NWS observations are UTC; we display in viewer's local time and show timezone.
         function formatObsTime(isoStr) {
             if (!isoStr) return '—';
@@ -192,31 +188,43 @@
             return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
         }
 
-        function renderCityCards(stations) {
+        function renderCityCards(stations, sunData) {
             const container = document.getElementById('city-cards');
             const cityNames = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+            const byCity = (sunData && sunData.by_city) ? sunData.by_city : {};
             if (!stations || Object.keys(stations).length === 0) {
                 container.innerHTML = '<div class="col-span-full card rounded-xl p-6 text-slate-500 text-center">Waiting for observations…</div>';
                 return;
             }
             container.innerHTML = '';
             Object.entries(stations).forEach(([key, data]) => {
+                const sun = byCity[key];
+                const progress = sun ? sun.progress : 0;
+                const status = sun ? sun.status : '—';
                 const trendIcon = data.trend_1h > 0 ? '↑' : '↓';
                 const trendClass = data.trend_1h > 0 ? 'trend-up' : 'trend-down';
                 const obsTime = formatObsTime(data.timestamp);
+                const highToday = data.observed_high_today != null ? data.observed_high_today : data.temp;
+                const nowTemp = data.temp;
+                const highLabel = highToday === nowTemp ? '' : ` <span class="text-slate-500 font-normal text-lg">(now ${nowTemp.toFixed(1)}°)</span>`;
+                const nwsTimeseriesUrl = `https://www.weather.gov/wrh/timeseries?site=${data.stid}&hourly=true&units=english`;
                 container.innerHTML += `
                     <div class="card rounded-xl p-4">
                         <div class="flex justify-between items-start mb-2">
                             <span class="text-slate-400 font-medium">${cityNames[key]}</span>
-                            <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${data.stid}</span>
+                            <a href="${nwsTimeseriesUrl}" target="_blank" rel="noopener" class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300 hover:text-amber-400" title="Compare: NWS Time Series (hourly) vs our latest observation">${data.stid} ↗</a>
                         </div>
-                        <div class="text-3xl font-bold mb-1">${data.temp.toFixed(1)}°F</div>
+                        <div class="text-3xl font-bold mb-1" title="Max observed so far today (station local date)">${highToday.toFixed(1)}°F${highLabel}</div>
                         <div class="flex items-center text-sm">
                             <span class="${trendClass} font-bold mr-1">${trendIcon}</span>
                             <span class="${trendClass}">${Math.abs(data.trend_1h).toFixed(2)}°/hr</span>
                             <span class="text-slate-500 ml-2">(${Math.abs(data.trend_10m).toFixed(2)} 10m)</span>
                         </div>
-                        <div class="text-xs text-slate-500 mt-2 border-t border-slate-700 pt-2" title="NWS data is UTC; shown in your local time">Observed at ${obsTime}</div>
+                        <div class="mt-2 pt-2 border-t border-slate-700 flex items-center justify-between">
+                            <span class="text-xs text-amber-400/90" title="Warming cycle progress">☀ ${progress}%</span>
+                            <span class="text-xs text-slate-500">${status}</span>
+                        </div>
+                        <div class="text-xs text-slate-500 mt-1" title="High = max so far today (local date). Last obs at ${obsTime}">Last obs ${obsTime}</div>
                     </div>
                 `;
             });
@@ -313,10 +321,10 @@
             let html = '<table class="w-full text-left"><thead><tr class="text-slate-400 border-b border-slate-700">';
             html += '<th class="pb-2 pr-4">Market</th>';
             html += '<th class="pb-2 pr-4">Prediction</th>';
-            html += '<th class="pb-2 pr-4">Latest forecast</th>';
+            html += '<th class="pb-2 pr-4" title="Expected high for the day (from latest intraday snapshot)">Forecast high</th>';
             html += '<th class="pb-2 pr-4">Forecast Δ</th>';
-            html += '<th class="pb-2 pr-4">Observation</th>';
-            html += '<th class="pb-2 pr-4">Obs vs bucket</th>';
+            html += '<th class="pb-2 pr-4" title="Max observed so far today (station local date)">Obs high (today)</th>';
+            html += '<th class="pb-2 pr-4">Obs high vs bucket</th>';
             html += '<th class="pb-2 pr-4">In range?</th>';
             html += '<th class="pb-2 pr-4">Sun</th>';
             html += '<th class="pb-2 pr-4">Trend</th>';
@@ -332,16 +340,16 @@
                 const pred = getPredictionFor(predictions, city, tradeDate);
                 const intraday = getIntradayFor(intradayData, city, tradeDate);
                 const obs = stations[city];
-                const obsTemp = obs ? obs.temp : null;
+                const obsHigh = obs && (obs.observed_high_today != null || obs.temp != null) ? (obs.observed_high_today != null ? obs.observed_high_today : obs.temp) : null;
                 const trend1h = obs ? obs.trend_1h : null;
 
                 const forecastVal = intraday ? intraday.mean_forecast : null;
                 const forecastDelta = (pred != null && forecastVal != null) ? (forecastVal - pred) : null;
-                const obsDelta = (bucketBase != null && obsTemp != null) ? (obsTemp - bucketBase) : null;
+                const obsDelta = (bucketBase != null && obsHigh != null) ? (obsHigh - bucketBase) : null;
                 let inRange = '—';
-                if (bucketBase != null && obsTemp != null) {
-                    if (isTopBucket) inRange = obsTemp >= bucketBase ? 'Yes' : 'No';
-                    else inRange = (obsTemp >= bucketBase && obsTemp < bucketBase + 1) ? 'Yes' : 'No';
+                if (bucketBase != null && obsHigh != null) {
+                    if (isTopBucket) inRange = obsHigh >= bucketBase ? 'Yes' : 'No';
+                    else inRange = (obsHigh >= bucketBase && obsHigh < bucketBase + 1) ? 'Yes' : 'No';
                 }
                 const trendLabel = trend1h != null ? (trend1h > 0 ? 'Warming' : trend1h < 0 ? 'Cooling' : 'Flat') : '—';
                 const trendClass = trend1h > 0 ? 'trend-up' : trend1h < 0 ? 'trend-down' : 'text-slate-400';
@@ -349,7 +357,7 @@
                 let riskLabel = '—';
                 let riskClass = 'text-slate-400';
                 if (obs && bucketBase != null && trend1h != null) {
-                    const d = obsTemp - bucketBase;
+                    const d = obsHigh - bucketBase;
                     const movingTowardEdge = (d < 0 && trend1h > 0) || (d > 0 && trend1h < 0);
                     if (Math.abs(d) < 1.0 && movingTowardEdge) { riskLabel = 'HIGH'; riskClass = 'text-red-400 font-bold'; }
                     else if (Math.abs(d) < 2.0) { riskLabel = 'MED'; riskClass = 'text-amber-400'; }
@@ -362,7 +370,7 @@
                 html += '<td class="py-3 pr-4 font-mono">' + (pred != null ? pred.toFixed(1) + '°' : '—') + '</td>';
                 html += '<td class="py-3 pr-4 font-mono">' + (forecastVal != null ? forecastVal.toFixed(1) + '°' : '—') + '</td>';
                 html += '<td class="py-3 pr-4 font-mono">' + (forecastDelta != null ? (forecastDelta >= 0 ? '+' : '') + forecastDelta.toFixed(1) + '°' : '—') + '</td>';
-                html += '<td class="py-3 pr-4 font-mono">' + (obsTemp != null ? obsTemp.toFixed(1) + '°' : '—') + '</td>';
+                html += '<td class="py-3 pr-4 font-mono">' + (obsHigh != null ? obsHigh.toFixed(1) + '°' : '—') + '</td>';
                 html += '<td class="py-3 pr-4 font-mono">' + (obsDelta != null ? (obsDelta >= 0 ? '+' : '') + obsDelta.toFixed(1) + '°' : '—') + '</td>';
                 html += '<td class="py-3 pr-4">' + inRange + '</td>';
                 html += '<td class="py-3 pr-4 text-sm">' + getSunStatusForCity(sunData, city) + '</td>';
@@ -374,27 +382,110 @@
             container.innerHTML = html;
         }
 
+        function predTempClass(temp) {
+            if (temp == null || isNaN(temp)) return 'text-slate-400';
+            const t = parseFloat(temp);
+            if (t < 35) return 'text-blue-300';
+            if (t < 55) return 'text-cyan-300';
+            if (t < 75) return 'text-green-400';
+            if (t < 90) return 'text-amber-400';
+            return 'text-red-400';
+        }
+
+        const PRED_SOURCE_COLS = [
+            { key: 'tmax_open_meteo', label: 'Open-Meteo', title: 'open-meteo' },
+            { key: 'tmax_visual_crossing', label: 'VC', title: 'visual-crossing' },
+            { key: 'tmax_tomorrow', label: 'Tomorrow', title: 'tomorrow' },
+            { key: 'tmax_weatherapi', label: 'WeatherAPI', title: 'weatherapi' },
+            { key: 'tmax_google_weather', label: 'Google', title: 'google-weather' },
+            { key: 'tmax_openweathermap', label: 'OWM', title: 'openweathermap' },
+            { key: 'tmax_pirateweather', label: 'Pirate', title: 'pirateweather' },
+            { key: 'tmax_weather_gov', label: 'NWS', title: 'weather.gov' },
+        ];
+
+        function renderPredictionsTable(predData) {
+            const wrap = document.getElementById('predictions-table-wrap');
+            if (!wrap) return;
+            const rows = Array.isArray(predData) ? predData : [];
+            const cityOrder = ['ny', 'il', 'tx', 'fl'];
+            const cityLabels = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+            const tradeDate = rows.length && rows[0].date ? rows[0].date : (rows[0] && rows[0].trade_date ? rows[0].trade_date : null);
+            const byCity = {};
+            rows.forEach(r => { const c = (r.city || '').trim().toLowerCase(); if (c) byCity[c] = r; });
+            const ordered = cityOrder.filter(c => byCity[c]).map(c => byCity[c]);
+            if (ordered.length === 0) {
+                wrap.innerHTML = '<div class="text-slate-500 text-center py-6">No predictions yet — run intraday/trade pipeline to populate predictions_latest.</div>';
+                return;
+            }
+            let html = '<table class="w-full text-left"><thead><tr class="text-slate-400 border-b border-slate-700">';
+            html += '<th class="pb-2 pr-2">City</th>';
+            html += '<th class="pb-2 pr-2" title="Predicted high °F">Pred</th>';
+            html += '<th class="pb-2 pr-2">Conf</th>';
+            html += '<th class="pb-2 pr-2" title="Spread / dispersion">Spread</th>';
+            PRED_SOURCE_COLS.forEach(sc => {
+                html += '<th class="pb-2 pr-2 text-center" title="' + escapeHtml(sc.title) + '">' + escapeHtml(sc.label) + '</th>';
+            });
+            html += '</tr></thead><tbody>';
+            ordered.forEach(r => {
+                const city = (r.city || '').trim().toLowerCase();
+                const pred = r.tmax_predicted != null && r.tmax_predicted !== '' ? parseFloat(r.tmax_predicted) : null;
+                const conf = r.confidence_score != null && r.confidence_score !== '' ? parseFloat(r.confidence_score) : null;
+                const spread = r.spread_f != null && r.spread_f !== '' ? parseFloat(r.spread_f) : null;
+                const predStr = pred != null ? pred.toFixed(1) + '°' : '—';
+                const confStr = conf != null ? conf.toFixed(2) : '—';
+                const spreadStr = spread != null ? spread.toFixed(2) : '—';
+                const predClass = predTempClass(pred);
+                html += '<tr class="border-b border-slate-800 hover:bg-slate-800/50">';
+                html += '<td class="py-3 pr-2 font-medium">' + (cityLabels[city] || city) + '</td>';
+                html += '<td class="py-3 pr-2 font-bold font-mono text-sm ' + predClass + '" title="Predicted high">' + predStr + '</td>';
+                html += '<td class="py-3 pr-2 font-mono text-xs">' + confStr + '</td>';
+                html += '<td class="py-3 pr-2 font-mono text-xs">' + spreadStr + '</td>';
+                PRED_SOURCE_COLS.forEach(sc => {
+                    const raw = r[sc.key];
+                    const val = raw != null && raw !== '' ? parseFloat(raw) : null;
+                    const cellStr = val != null ? val.toFixed(1) + '°' : '—';
+                    const cellClass = predTempClass(val);
+                    html += '<td class="py-3 pr-2 font-mono text-xs text-center ' + cellClass + '" title="' + escapeHtml(sc.title) + '">' + cellStr + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            const header = tradeDate ? '<p class="text-slate-500 text-sm mb-3">Trade date: <strong class="text-slate-300">' + escapeHtml(tradeDate) + '</strong></p>' : '';
+            wrap.innerHTML = header + html;
+        }
+
         function renderPositions(positions, stations, posError) {
             const table = document.getElementById('positions-table');
             table.innerHTML = '';
+            const colCount = 9;
 
             if (posError) {
-                table.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-amber-400">' + posError + '</td></tr>';
+                table.innerHTML = '<tr><td colspan="' + colCount + '" class="py-8 text-center text-amber-400">' + posError + '</td></tr>';
                 return;
             }
             if (!positions || positions.length === 0) {
-                table.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">No open positions (live from Kalshi)</td></tr>';
+                table.innerHTML = '<tr><td colspan="' + colCount + '" class="py-8 text-center text-slate-500">No open positions (live from Kalshi)</td></tr>';
                 return;
             }
 
             positions.forEach(pos => {
                 const ticker = pos.ticker || pos.market_ticker || '';
                 const count = pos.position != null ? pos.position : (pos.count || 0);
+                const positionFp = parseFloat(pos.position_fp);
+                const yesBid = pos.yes_bid != null ? parseInt(pos.yes_bid, 10) : null;
+                const costDollars = !isNaN(positionFp) ? (count * positionFp / 100) : null;
+                const pnlNowDollars = (yesBid != null && !isNaN(positionFp) && costDollars != null) ? (count * yesBid / 100 - costDollars) : null;
+                const pnlIfWonDollars = !isNaN(positionFp) ? (count * (100 - positionFp) / 100) : null;
+                const pnlNowStr = pnlNowDollars != null ? '$' + pnlNowDollars.toFixed(2) : '—';
+                const pnlIfWonStr = pnlIfWonDollars != null ? '$' + pnlIfWonDollars.toFixed(2) : '—';
+                const pnlNowClass = pnlNowDollars != null ? (pnlNowDollars >= 0 ? 'text-green-400' : 'text-red-400') : '';
+                const pnlIfWonClass = pnlIfWonDollars != null ? (pnlIfWonDollars >= 0 ? 'text-green-400' : 'text-red-400') : '';
+
                 const obs = stations[pos.city];
-                const currentTemp = obs ? obs.temp : 'N/A';
+                const obsHigh = obs && (obs.observed_high_today != null || obs.temp != null) ? (obs.observed_high_today != null ? obs.observed_high_today : obs.temp) : null;
                 const bucketMatch = ticker.match(/-B(\d+\.?\d*)/);
                 const bucketBase = bucketMatch ? parseFloat(bucketMatch[1]) : 0;
-                const distance = obs ? (obs.temp - bucketBase).toFixed(1) : 'N/A';
+                const distance = obsHigh != null ? (obsHigh - bucketBase).toFixed(1) : 'N/A';
                 let riskColor = 'text-green-400';
                 let riskText = 'LOW';
                 if (obs && distance !== 'N/A') {
@@ -405,7 +496,6 @@
                 }
                 const name = (cityLabels[pos.city] || pos.city || '') + (pos.market_subtitle ? ' — ' + pos.market_subtitle : '');
                 const bidAsk = (pos.yes_bid != null && pos.yes_ask != null) ? (pos.yes_bid + '¢ / ' + pos.yes_ask + '¢') : '—';
-                const exposure = pos.market_exposure_dollars != null ? '$' + parseFloat(pos.market_exposure_dollars).toFixed(2) : '—';
 
                 table.innerHTML += `
                     <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
@@ -415,7 +505,9 @@
                         </td>
                         <td class="text-center font-mono">${count}</td>
                         <td class="text-center font-mono text-sm">${bidAsk}</td>
-                        <td class="text-center font-mono">${currentTemp}°</td>
+                        <td class="text-center font-mono font-semibold ${pnlNowClass}">${pnlNowStr}</td>
+                        <td class="text-center font-mono font-semibold ${pnlIfWonClass}">${pnlIfWonStr}</td>
+                        <td class="text-center font-mono">${obsHigh != null ? obsHigh.toFixed(1) + '°' : 'N/A'}</td>
                         <td class="text-center font-mono">${distance !== 'N/A' ? (parseFloat(distance) >= 0 ? '+' : '') + distance : 'N/A'}</td>
                         <td class="text-center font-bold ${riskColor}">${riskText}</td>
                         <td class="text-right">
@@ -472,6 +564,35 @@
             if (!signalsFound) {
                 container.innerHTML = '<div class="text-slate-500 italic text-center py-8">No urgent sell signals. Markets are stable.</div>';
             }
+        }
+
+        function renderAtRiskBrackets(atRiskData) {
+            const container = document.getElementById('at-risk-brackets');
+            if (!container) return;
+            const list = (atRiskData && atRiskData.at_risk) ? atRiskData.at_risk : [];
+            if (list.length === 0) {
+                container.innerHTML = '<div class="text-slate-500 italic text-center py-4">No at-risk brackets. Projected high does not exceed current bracket.</div>';
+                return;
+            }
+            const cityNames = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
+            container.innerHTML = '';
+            list.forEach(item => {
+                showAtRiskBracketNotification(item);
+                const name = cityNames[item.city] || item.city;
+                container.innerHTML += `
+                    <div class="bg-cyan-900/20 border border-cyan-500/50 rounded-lg p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-cyan-400 font-semibold">${name}</span>
+                            <span class="text-slate-400 text-xs">${item.current_temp}° → proj ${item.projected_high}°</span>
+                        </div>
+                        <p class="text-sm text-slate-300 mb-2">
+                            Bracket <strong>${item.bucket_base}-${item.bracket_high}°</strong> at risk. Warming <strong>${item.trend_30m.toFixed(1)}°/hr</strong>${item.hours_until_peak > 0 ? ', ' + item.hours_until_peak.toFixed(1) + 'h to peak' : ''}.
+                        </p>
+                        <p class="text-xs text-slate-400 mb-3 font-mono">${item.suggested_ticker}</p>
+                        <p class="text-amber-400 text-xs font-semibold">Consider BUY NO if priced well (early buy against popular bracket).</p>
+                    </div>
+                `;
+            });
         }
 
         // Enable notifications button: request permission upfront
