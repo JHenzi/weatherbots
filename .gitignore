@@ -6,3 +6,14 @@ gooony.txt
 *.p8
 .venv/
 pgdata/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz
