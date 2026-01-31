@@ -5,7 +5,7 @@ gooony.txt
 *.key
 *.p8
 .venv/
-pgdata/
+pgdata/**/*
 
 # Python
 __pycache__/
