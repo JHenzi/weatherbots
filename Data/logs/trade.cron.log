@@ -272,3 +272,45 @@ Traceback (most recent call last):
   File "/app/kalshi_trader.py", line 111, in get_event
     raise RuntimeError(f"Failed to fetch event {event_ticker}: {resp.status_code} {resp.text}")
 RuntimeError: Failed to fetch event KXHIGHNY-26JAN30: 404 {"error":{"code":"not_found","message":"not found","service":"query-exchange"}}
+[trade] 2026-01-30T07:00:01-05:00 trade_date=2026-01-30 (07:00 fetch + trade)
+[intraday_pulse.py] done start=2026-01-30T07:00:01.953303-05:00 trade_date=2026-01-30 cities_written=8 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Balance: available_cash=$60.46 → per-run cap=$30.23 (min(configured=$50.00, 0.50*balance))
+City budget caps: ny=$7.56, il=$7.56, tx=$7.56, fl=$7.56 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-30 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.653 (no sizing impact)
+Selected bucket from forecast(mu): '15° to 16°' (mu=15.58) → market=KXHIGHNY-26JAN30-B15.5 ask=19¢ depth=5 (px=orderbook)
+LIQUIDITY WARNING: desired_count=39 > depth_at_best=5. Next level ask≈25¢ implies +31.6% price move (>10%). Order may not fully fill without moving price.
+Pred_mean=15.58 | chosen_bucket='15° to 16°' | market=KXHIGHNY-26JAN30-B15.5
+Order submitted: KXHIGHNY-26JAN30-B15.5
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-30 -----------
+SKIP: effective_confidence=0.747 < 0.75 (confidence=0.747 conviction=?)
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-30 -----------
+SKIP: effective_confidence=0.000 < 0.75 (confidence=0.000 conviction=?)
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-30 -----------
+SKIP: effective_confidence=0.371 < 0.75 (confidence=0.371 conviction=?)
+[trade] 2026-01-31T07:00:01-05:00 trade_date=2026-01-31 (07:00 fetch + trade)
+[intraday_pulse.py] done start=2026-01-31T07:00:01.440614-05:00 trade_date=2026-01-31 cities_written=8 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Balance: available_cash=$60.26 → per-run cap=$30.13 (min(configured=$50.00, 0.50*balance))
+City budget caps: ny=$7.53, il=$7.53, tx=$7.53, fl=$7.53 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-01-31 -----------
+SKIP: effective_confidence=0.509 < 0.75 (confidence=0.509 conviction=?)
+
+----------- KXHIGHCHI / city=il / trade_date=2026-01-31 -----------
+Intraday signal: ok=True n=4 trend=increasing sigma=0.611 (no sizing impact)
+Selected bucket from forecast(mu): '24° to 25°' (mu=24.96) → market=KXHIGHCHI-26JAN31-B24.5 ask=53¢ depth=26 (px=orderbook)
+Pred_mean=24.96 | chosen_bucket='24° to 25°' | market=KXHIGHCHI-26JAN31-B24.5
+Order submitted: KXHIGHCHI-26JAN31-B24.5
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-01-31 -----------
+SKIP: effective_confidence=0.000 < 0.75 (confidence=0.000 conviction=?)
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-01-31 -----------
+Intraday signal: ok=False n=4 trend=non_monotonic sigma=1.233 (no sizing impact)
+Selected bucket from forecast(mu): '64° to 65°' (mu=64.17) → market=KXHIGHMIA-26JAN31-B64.5 ask=27¢ depth=12 (px=orderbook)
+Pred_mean=64.17 | chosen_bucket='64° to 65°' | market=KXHIGHMIA-26JAN31-B64.5
+Order submitted: KXHIGHMIA-26JAN31-B64.5

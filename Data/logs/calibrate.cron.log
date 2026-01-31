@@ -52,3 +52,19 @@ Wrote 16 rows to Data/source_performance.csv
 Wrote weights to Data/weights.json
 Wrote 28 rows to Data/source_performance.csv
 Wrote weights to Data/weights.json
+SKIP truth for city=tx date=2026-01-29: Could not find CLI report for tx date=2026-01-29 within 50 versions
+SKIP truth for city=fl date=2026-01-29: Could not find CLI report for fl date=2026-01-29 within 50 versions
+Wrote 18 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json
+SKIP truth for city=tx date=2026-01-29: Could not find CLI report for tx date=2026-01-29 within 50 versions (latest_seen=2026-01-29 at version=1; issued='532 PM CST THU JAN 29 2026')
+SKIP truth for city=fl date=2026-01-29: Could not find CLI report for fl date=2026-01-29 within 50 versions (latest_seen=2026-01-29 at version=1; issued='423 PM EST THU JAN 29 2026')
+Wrote 18 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json
+Wrote 36 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json
+SKIP truth for city=tx date=2026-01-30: Could not find CLI report for tx date=2026-01-30 within 50 versions (latest_seen=2026-01-30 at version=1; issued='528 PM CST FRI JAN 30 2026')
+SKIP truth for city=fl date=2026-01-30: Could not find CLI report for fl date=2026-01-30 within 50 versions (latest_seen=2026-01-30 at version=1; issued='429 PM EST FRI JAN 30 2026')
+Wrote 16 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json
+Wrote 32 rows to Data/source_performance.csv
+Wrote weights to Data/weights.json

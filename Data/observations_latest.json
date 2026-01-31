@@ -1,49 +1,53 @@
 {
-  "last_update": "2026-01-30T04:17:30.531252+00:00",
+  "last_update": "2026-01-31T16:57:36.574591+00:00",
   "stations": {
     "ny": {
       "city": "ny",
       "stid": "KNYC",
-      "timestamp": "2026-01-30T03:51:00+00:00",
+      "timestamp": "2026-01-31T15:51:00+00:00",
       "temp": 17.06,
-      "observed_high_today": 23.0,
+      "observed_high_today": 17.06,
+      "projected_high": 21.6,
       "trend_10m": 0.0,
-      "trend_30m": -0.9,
-      "trend_1h": -0.99,
-      "acceleration": 0.9
+      "trend_30m": 3.06,
+      "trend_1h": 2.07,
+      "acceleration": -3.06
     },
     "il": {
       "city": "il",
       "stid": "KMDW",
-      "timestamp": "2026-01-30T04:00:00+00:00",
-      "temp": 10.4,
-      "observed_high_today": 17.6,
-      "trend_10m": -0.2097,
-      "trend_30m": -0.0915,
-      "trend_1h": -1.1884,
-      "acceleration": -0.1182
+      "timestamp": "2026-01-31T16:35:00+00:00",
+      "temp": 19.4,
+      "observed_high_today": 19.4,
+      "projected_high": 23.52,
+      "trend_10m": -0.0,
+      "trend_30m": 0.7234,
+      "trend_1h": 1.3241,
+      "acceleration": -0.7234
     },
     "tx": {
       "city": "tx",
       "stid": "KAUS",
-      "timestamp": "2026-01-30T04:05:00+00:00",
-      "temp": 53.6,
-      "observed_high_today": 71.96,
-      "trend_10m": -0.1421,
-      "trend_30m": -2.4351,
-      "trend_1h": -3.6062,
-      "acceleration": 2.293
+      "timestamp": "2026-01-31T16:35:00+00:00",
+      "temp": 37.4,
+      "observed_high_today": 37.4,
+      "projected_high": 45.1,
+      "trend_10m": -0.0,
+      "trend_30m": 2.354,
+      "trend_1h": 2.0402,
+      "acceleration": -2.354
     },
     "fl": {
       "city": "fl",
       "stid": "KMIA",
-      "timestamp": "2026-01-30T04:00:00+00:00",
-      "temp": 66.2,
-      "observed_high_today": 71.6,
-      "trend_10m": -3.9845,
-      "trend_30m": -0.1438,
-      "trend_1h": 0.7364,
-      "acceleration": -3.8406
+      "timestamp": "2026-01-31T16:35:00+00:00",
+      "temp": 64.4,
+      "observed_high_today": 64.4,
+      "projected_high": 64.4,
+      "trend_10m": -0.0,
+      "trend_30m": 2.4884,
+      "trend_1h": -0.72,
+      "acceleration": -2.4884
     }
   }
 }

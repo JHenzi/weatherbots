@@ -315,3 +315,11 @@ run_ts,env,trade_date,city,series_ticker,event_ticker,pred_tmax_f,spread_f,confi
 2026-01-29T21:07:35.845909-05:00,prod,2026-01-30,il,KXHIGHCHI,KXHIGHCHI-26JAN30,18.8208,1.1921,0.7875,trade,"low_ask_depth(9<25);intraday_soft;non_monotonic;means=17.91,18.09,18.58,18.39;mode=forecast_bucket;p=0.085;market_p=0.430;ticker=KXHIGHCHI-26JAN30-B18.5;ask=43"
 2026-01-29T21:07:35.853821-05:00,prod,2026-01-30,tx,KXHIGHAUS,KXHIGHAUS-26JAN30,54.3050,4.3892,0.0000,skip,effective_confidence<0.75
 2026-01-29T21:07:35.856691-05:00,prod,2026-01-30,fl,KXHIGHMIA,KXHIGHMIA-26JAN30,69.2640,3.1191,0.0000,skip,effective_confidence<0.75
+2026-01-30T07:00:04.476617-05:00,prod,2026-01-30,ny,KXHIGHNY,KXHIGHNY-26JAN30,15.5833,1.6533,0.8347,trade,"low_ask_depth(5<25);intraday_soft;non_monotonic;means=15.99,15.62,15.52,15.58;mode=forecast_bucket;p=0.114;market_p=0.190;ticker=KXHIGHNY-26JAN30-B15.5;ask=19"
+2026-01-30T07:00:06.028830-05:00,prod,2026-01-30,il,KXHIGHCHI,KXHIGHCHI-26JAN30,19.0900,0.6035,0.7469,skip,effective_confidence<0.75
+2026-01-30T07:00:06.031880-05:00,prod,2026-01-30,tx,KXHIGHAUS,KXHIGHAUS-26JAN30,55.2959,4.4198,0.0000,skip,effective_confidence<0.75
+2026-01-30T07:00:06.034508-05:00,prod,2026-01-30,fl,KXHIGHMIA,KXHIGHMIA-26JAN30,69.9528,2.3592,0.3708,skip,effective_confidence<0.75
+2026-01-31T07:00:28.683335-05:00,prod,2026-01-31,ny,KXHIGHNY,KXHIGHNY-26JAN31,21.1900,2.1729,0.5095,skip,effective_confidence<0.75
+2026-01-31T07:00:29.867733-05:00,prod,2026-01-31,il,KXHIGHCHI,KXHIGHCHI-26JAN31,24.9635,0.6112,0.7587,trade,"intraday_ok;ok;trend=increasing;means=24.60,24.81,24.95,24.96;sigma=0.6112;mode=forecast_bucket;p=0.092;market_p=0.530;ticker=KXHIGHCHI-26JAN31-B24.5;ask=53"
+2026-01-31T07:00:31.248344-05:00,prod,2026-01-31,tx,KXHIGHAUS,KXHIGHAUS-26JAN31,44.6509,3.0712,0.0000,skip,effective_confidence<0.75
+2026-01-31T07:00:32.453211-05:00,prod,2026-01-31,fl,KXHIGHMIA,KXHIGHMIA-26JAN31,64.1693,1.2326,0.7722,trade,"low_ask_depth(12<25);intraday_soft;non_monotonic;means=64.36,64.11,63.83,64.17;mode=forecast_bucket;p=0.127;market_p=0.270;ticker=KXHIGHMIA-26JAN31-B64.5;ask=27"
