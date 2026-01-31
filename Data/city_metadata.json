@@ -1,24 +1,24 @@
 {
-  "as_of": "2026-01-28",
+  "as_of": "2026-01-30",
   "cities": {
     "fl": {
-      "historical_MAE": 3.1379555555555556,
-      "n_days": 9
+      "historical_MAE": 2.877018181818182,
+      "n_days": 11
     },
     "il": {
-      "historical_MAE": 4.6670750000000005,
-      "n_days": 20
+      "historical_MAE": 4.204380000000001,
+      "n_days": 25
     },
     "ny": {
-      "historical_MAE": 3.52006,
-      "n_days": 20
+      "historical_MAE": 3.256584000000001,
+      "n_days": 25
     },
     "tx": {
-      "historical_MAE": 1.98473,
-      "n_days": 10
+      "historical_MAE": 2.3033,
+      "n_days": 12
     }
   },
   "source": "Data/source_performance.csv (source_name=consensus, absolute_error)",
-  "updated_at": "2026-01-29T07:15:02.396159-05:00",
+  "updated_at": "2026-01-31T07:15:02.136736-05:00",
   "window_days": 30
 }

@@ -66,6 +66,25 @@ def _calculate_slope(times: np.ndarray, values: np.ndarray) -> float:
     m, _ = np.linalg.lstsq(A, y, rcond=None)[0]
     return float(m)
 
+
+def _projected_daily_high(
+    current_temp: float,
+    observed_high_today: float,
+    trend_per_hr: float,
+    past_peak: bool,
+    high_time: Optional[dt.datetime],
+    now: Optional[dt.datetime],
+) -> float:
+    """Single source of truth for projected daily high. Used by observations and at-risk.
+    If past peak or cooling (trend <= 0), return observed high — don't project a rise."""
+    if past_peak or trend_per_hr <= 0:
+        return round(observed_high_today, 2)
+    if high_time is None or now is None:
+        return round(observed_high_today, 2)
+    hours = max(0.0, (high_time - now).total_seconds() / 3600.0)
+    proj = current_temp + trend_per_hr * hours
+    return round(max(proj, observed_high_today), 2)
+
 def _get_observations(stid: str) -> Optional[List[Dict[str, Any]]]:
     """Fetch latest observations from NWS API. We use the most recent observation by timestamp.
     The NWS Time Series Viewer (weather.gov/wrh/timeseries?site=...) with hourly=true shows
@@ -103,16 +122,33 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
     now_ts = times[-1]
     current_temp = temps[-1]
 
-    # Observed high so far today (station local date) for settlement-style comparison
+    # Observed high so far today (station local date), using hourly observations only so
+    # the value matches NWS Time Series (weather.gov/wrh/timeseries?site=...&hourly=true).
+    # NWS uses observations at :51-:59 for each hour; sub-hourly spikes can otherwise
+    # show a "high" that doesn't appear on the timeseries page.
     tz = ZoneInfo(CITY_LATLON_TZ.get(city, {}).get("tz", "America/New_York"))
     today_local = dt.datetime.now(tz).date()
-    temps_today = []
+    hourly_temps_today: Dict[tuple, float] = {}  # (date, hour) -> temp
+    all_temps_today: List[float] = []
     for o in obs_list:
         ts_utc = dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00"))
         ts_local = ts_utc.astimezone(tz)
-        if ts_local.date() == today_local:
-            temps_today.append(o["temp"])
-    observed_high_today = round(max(temps_today), 2) if temps_today else current_temp
+        if ts_local.date() != today_local:
+            continue
+        all_temps_today.append(o["temp"])
+        # Prefer the "hourly" observation for this hour (minute 51-59 per NWS)
+        key = (today_local, ts_local.hour)
+        if 51 <= ts_local.minute <= 59:
+            hourly_temps_today[key] = o["temp"]  # official hourly reading
+        elif key not in hourly_temps_today:
+            hourly_temps_today[key] = o["temp"]  # fallback so we have one value per hour
+    # Use max of hourly values when we have any; else fall back to max of all temps today
+    if hourly_temps_today:
+        observed_high_today = round(max(hourly_temps_today.values()), 2)
+    elif all_temps_today:
+        observed_high_today = round(max(all_temps_today), 2)
+    else:
+        observed_high_today = current_temp
 
     def slope_for(minutes: int) -> float:
         cutoff = now_ts - (minutes * 60 * 2)
@@ -124,12 +160,29 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
     trend_10m = slope_for(10)
     trend_30m = slope_for(30)
     trend_1h = slope_for(60)
+
+    # Single source of truth for projected daily high (same logic as at-risk)
+    projected_high = observed_high_today
+    cfg = CITY_LATLON_TZ.get(city, {})
+    try:
+        loc = LocationInfo(city, "", cfg.get("tz", "America/New_York"), cfg.get("lat", 0), cfg.get("lon", 0))
+        s = sun(loc.observer, date=today_local, tzinfo=tz)
+        high_time = s["noon"] + dt.timedelta(hours=2)
+        now_dt = dt.datetime.now(tz)
+        past_peak = now_dt >= high_time
+        projected_high = _projected_daily_high(
+            current_temp, observed_high_today, trend_1h, past_peak, high_time, now_dt
+        )
+    except Exception:
+        pass
+
     return {
         "city": city,
         "stid": stid,
         "timestamp": dt.datetime.fromtimestamp(now_ts, tz=dt.timezone.utc).isoformat(),
         "temp": round(current_temp, 2),
         "observed_high_today": observed_high_today,
+        "projected_high": projected_high,
         "trend_10m": round(trend_10m, 4),
         "trend_30m": round(trend_30m, 4),
         "trend_1h": round(trend_1h, 4),
@@ -304,58 +357,114 @@ SERIES_TICKERS = {
     "fl": os.getenv("KALSHI_SERIES_FL", "KXHIGHMIA"),
 }
 
+# Per-source tmax columns in predictions_latest (for "sources in bracket" check)
+SOURCE_TMAX_KEYS = [
+    "tmax_open_meteo", "tmax_visual_crossing", "tmax_tomorrow", "tmax_weatherapi",
+    "tmax_google_weather", "tmax_openweathermap", "tmax_pirateweather", "tmax_weather_gov",
+]
+
+
+def _predictions_by_city_for_date(trade_date: dt.date) -> Dict[str, Dict[str, Any]]:
+    """Load predictions_latest and return dict[city_code, row] for the given date."""
+    if not PREDICTIONS_LATEST.exists():
+        return {}
+    date_str = trade_date.strftime("%Y-%m-%d")
+    by_city: Dict[str, Dict[str, Any]] = {}
+    with open(PREDICTIONS_LATEST, "r", newline="") as f:
+        for row in csv.DictReader(f):
+            if (row.get("date") or row.get("trade_date") or "").strip() != date_str:
+                continue
+            city = (row.get("city") or "").strip().lower()
+            if city:
+                by_city[city] = row
+    return by_city
+
+
+def _fetch_market_prices_sync(ticker: str) -> Dict[str, Any]:
+    """Fetch yes_bid, yes_ask, no_bid, no_ask for a market. Returns dict with keys or empty on error."""
+    try:
+        client = _kalshi_client("prod")
+    except Exception:
+        return {}
+    try:
+        m = _kalshi().get_market(client, ticker)
+        yes_bid = m.get("yes_bid")
+        yes_ask = m.get("yes_ask")
+        no_bid = m.get("no_bid")
+        no_ask = m.get("no_ask")
+        if no_ask is None and yes_bid is not None:
+            try:
+                no_ask = 100 - int(yes_bid)
+            except Exception:
+                no_ask = None
+        if no_bid is None and yes_ask is not None:
+            try:
+                no_bid = 100 - int(yes_ask)
+            except Exception:
+                no_bid = None
+        return {
+            "yes_bid": int(yes_bid) if yes_bid is not None else None,
+            "yes_ask": int(yes_ask) if yes_ask is not None else None,
+            "no_bid": int(no_bid) if no_bid is not None else None,
+            "no_ask": int(no_ask) if no_ask is not None else None,
+        }
+    except Exception:
+        return {}
+
 
 @app.get("/api/at_risk_brackets")
 async def get_at_risk_brackets(min_warming_per_hr: float = 0.5):
-    """Identify brackets where current temp is near the upper bound and projected high exceeds
-    bracket high (30-min warming rate positive and strong). Flag as BUY NO opportunity on
-    that bracket if priced well. Returns list of { city, current_temp, trend_30m, projected_high,
-    bucket_base, bracket_high, suggested_ticker }."""
+    """Identify brackets where projected high exceeds bracket (warming strong). Only suggest when
+    consensus doesn't match bracket, few sources forecast in range, and we have edge (good EV).
+    Fetches Kalshi prices and returns list sorted by EV; best value first."""
     if not OBSERVATIONS_JSON.exists():
-        return {"at_risk": []}
+        return {"at_risk": [], "message": "No observations"}
     obs_payload = json.loads(OBSERVATIONS_JSON.read_text())
     stations = obs_payload.get("stations") or {}
     today = dt.date.today()
     event_suffix = today.strftime("%y%b%d").upper()
-    at_risk: List[Dict[str, Any]] = []
+    pred_by_city = _predictions_by_city_for_date(today)
+
+    # Build raw at-risk list using same projected_high as observations (computed once in _process_station).
+    # Only suggest when actually warming (trend_1h > 0) — until we detect a rise, assume high isn't changing.
+    raw: List[Dict[str, Any]] = []
     for city, cfg in CITY_LATLON_TZ.items():
         st = stations.get(city)
         if not st:
             continue
         temp = st.get("temp")
-        trend_30m = st.get("trend_30m")
-        if temp is None or trend_30m is None:
+        trend_1h = st.get("trend_1h")
+        projected_high = st.get("projected_high")
+        if temp is None or projected_high is None:
             continue
         temp = float(temp)
-        trend_30m = float(trend_30m)
-        tz = ZoneInfo(cfg["tz"])
-        loc = LocationInfo(city, "", cfg["tz"], cfg["lat"], cfg["lon"])
-        try:
-            s = sun(loc.observer, date=today, tzinfo=tz)
-        except Exception:
+        trend_1h = float(trend_1h) if trend_1h is not None else 0.0
+        projected_high = float(projected_high)
+        # Only suggest when warming; when cooling, projected_high is already = observed high
+        if trend_1h < min_warming_per_hr:
             continue
-        high_time = s["noon"] + dt.timedelta(hours=2)
-        now = dt.datetime.now(tz)
-        past_peak = now >= high_time
-        if past_peak:
-            hours_until_peak = 0.0
-            projected_high = temp
-        else:
-            hours_until_peak = max(0.0, (high_time - now).total_seconds() / 3600.0)
-            projected_high = temp + trend_30m * hours_until_peak
-        # Bracket containing current temp (Kalshi: B14.5 = 14.5–15.5°F)
         fl = math.floor(temp)
         frac = temp - fl
         bucket_base = (fl - 0.5) if frac < 0.5 else (fl + 0.5)
         bracket_high = bucket_base + 1.0
-        if trend_30m < min_warming_per_hr or projected_high <= bracket_high:
+        if projected_high <= bracket_high:
             continue
+        tz = ZoneInfo(cfg["tz"])
+        try:
+            loc = LocationInfo(city, "", cfg["tz"], cfg["lat"], cfg["lon"])
+            s = sun(loc.observer, date=today, tzinfo=tz)
+            high_time = s["noon"] + dt.timedelta(hours=2)
+            now = dt.datetime.now(tz)
+            hours_until_peak = max(0.0, (high_time - now).total_seconds() / 3600.0)
+        except Exception:
+            hours_until_peak = 0.0
         series = SERIES_TICKERS.get(city, f"KXHIGH{city.upper()}")
         suggested_ticker = f"{series}-{event_suffix}-B{bucket_base}"
-        at_risk.append({
+        raw.append({
             "city": city,
             "current_temp": round(temp, 2),
-            "trend_30m": round(trend_30m, 4),
+            "trend_30m": round(st.get("trend_30m") or 0, 4),
+            "trend_1h": round(trend_1h, 4),
             "hours_until_peak": round(hours_until_peak, 2),
             "projected_high": round(projected_high, 2),
             "bucket_base": bucket_base,
@@ -363,6 +472,71 @@ async def get_at_risk_brackets(min_warming_per_hr: float = 0.5):
             "suggested_ticker": suggested_ticker,
             "event_ticker": f"{series}-{event_suffix}",
         })
+
+    # Filter by consensus and sources: only suggest when we have edge
+    with_edge: List[Dict[str, Any]] = []
+    for item in raw:
+        city = item["city"]
+        bucket_base = item["bucket_base"]
+        bracket_high = item["bracket_high"]
+        projected_high = item["projected_high"]
+        pred = pred_by_city.get(city) or {}
+        try:
+            consensus = float(pred.get("tmax_predicted") or 0)
+        except Exception:
+            consensus = None
+        sources_in_bracket = 0
+        for key in SOURCE_TMAX_KEYS:
+            v = pred.get(key)
+            if v is None or v == "":
+                continue
+            try:
+                t = float(v)
+                if bucket_base <= t <= bracket_high:
+                    sources_in_bracket += 1
+            except Exception:
+                pass
+        consensus_in_bracket = consensus is not None and bucket_base <= consensus <= bracket_high
+        # Suggest only if: consensus does NOT match bracket (we disagree with "bracket will hit")
+        # and either few sources in range (≤2) or consensus above bracket (everyone high)
+        if consensus_in_bracket and sources_in_bracket > 2:
+            continue
+        if consensus is not None and consensus_in_bracket and sources_in_bracket > 1:
+            continue
+        with_edge.append({**item, "consensus_pred": consensus, "sources_in_bracket": sources_in_bracket})
+
+    # Fetch Kalshi prices and compute EV (run sync in thread to avoid blocking)
+    loop = asyncio.get_event_loop()
+    for item in with_edge:
+        ticker = item.get("suggested_ticker") or ""
+        if not ticker:
+            continue
+        px = await asyncio.to_thread(_fetch_market_prices_sync, ticker)
+        item["yes_bid"] = px.get("yes_bid")
+        item["yes_ask"] = px.get("yes_ask")
+        item["no_bid"] = px.get("no_bid")
+        item["no_ask"] = px.get("no_ask")
+        no_ask = px.get("no_ask")
+        if no_ask is None and px.get("yes_bid") is not None:
+            no_ask = 100 - int(px["yes_bid"])
+        # EV for BUY NO: we pay no_ask cents, get 100 if NO wins. P(NO) = our prob temp > bracket_high
+        bh = float(item.get("bracket_high") or 0)
+        excess = max(0.0, float(item["projected_high"]) - bh)
+        p_no = 0.6 + 0.25 * min(1.0, excess / 4.0)
+        ev_cents = (100.0 * p_no - float(no_ask)) if no_ask is not None else None
+        item["no_ask"] = int(no_ask) if no_ask is not None else None
+        item["ev_cents"] = round(ev_cents, 1) if ev_cents is not None else None
+
+    # Keep only good value: EV > 0 or no_ask missing (show anyway so user sees "no price")
+    at_risk = [x for x in with_edge if x.get("ev_cents") is None or x.get("ev_cents") > 0]
+    # If we filtered out everyone due to EV, still show those with price data so user can decide
+    if not at_risk and with_edge:
+        at_risk = [x for x in with_edge if x.get("no_ask") is not None or x.get("yes_bid") is not None]
+    if not at_risk:
+        at_risk = with_edge
+    at_risk.sort(key=lambda x: (-(x.get("ev_cents") or -999), x.get("no_ask") or 999))
+    for i, item in enumerate(at_risk):
+        item["best_value"] = i == 0 and (item.get("no_ask") is not None or item.get("yes_bid") is not None)
     return {"at_risk": at_risk}
 
 
@@ -471,9 +645,38 @@ async def get_positions(env: str = "prod"):
         out.append(row)
     return {"positions": out, "source": "kalshi"}
 
+def _predictions_last_run_ts() -> Optional[str]:
+    """ISO timestamp when predictions_latest was last written (file mtime), or max run_ts from history."""
+    if PREDICTIONS_LATEST.exists():
+        mtime = PREDICTIONS_LATEST.stat().st_mtime
+        return dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
+    return None
+
+
+# After this hour (Eastern) we show next day's predictions
+DISPLAY_DATE_CUTOFF_HOUR_ET = 19  # 7 PM
+
+
+def _predictions_display_date() -> str:
+    """Date to show for predictions: today before 7 PM ET, tomorrow at/after 7 PM ET (YYYY-MM-DD)."""
+    try:
+        et = ZoneInfo("America/New_York")
+    except Exception:
+        et = dt.timezone.utc
+    now_et = dt.datetime.now(et)
+    if now_et.hour >= DISPLAY_DATE_CUTOFF_HOUR_ET:
+        display = (now_et.date() + dt.timedelta(days=1))
+    else:
+        display = now_et.date()
+    return display.strftime("%Y-%m-%d")
+
+
 @app.get("/api/predictions")
 async def get_predictions():
-    return read_csv(PREDICTIONS_LATEST)
+    rows = read_csv(PREDICTIONS_LATEST)
+    last_run = _predictions_last_run_ts()
+    display_date = _predictions_display_date()
+    return {"predictions": rows, "last_run": last_run, "display_date": display_date}
 
 
 # Base URL for Kalshi market/event links (web UI). Canonical form: /markets/{series_slug}/{event_slug}/{market_ticker}
