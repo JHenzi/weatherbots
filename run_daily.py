@@ -355,22 +355,23 @@ if __name__ == "__main__":
     if os.path.exists(args.predictions_latest):
         os.remove(args.predictions_latest)
 
-    # 1) Prediction step (optionally refreshing observed history)
-    pred_cmd = [
-        sys.executable,
-        "daily_prediction.py",
-        "--trade-date",
-        trade_dt.strftime("%Y-%m-%d"),
-        "--prediction-mode",
-        args.prediction_mode,
-        "--blend-forecast-weight",
-        str(args.blend_forecast_weight),
-        "--predictions-csv",
-        args.predictions_latest,
-    ]
-    if bool(getattr(args, "skip_fetch", False)):
-        pred_cmd.append("--skip-fetch")
-    _run(pred_cmd)
+    # 1) Prediction step: run for today and tomorrow so dashboard always has next trade date (e.g. after 7 PM ET).
+    for run_dt in (trade_dt, trade_dt + dt.timedelta(days=1)):
+        pred_cmd = [
+            sys.executable,
+            "daily_prediction.py",
+            "--trade-date",
+            run_dt.strftime("%Y-%m-%d"),
+            "--prediction-mode",
+            args.prediction_mode,
+            "--blend-forecast-weight",
+            str(args.blend_forecast_weight),
+            "--predictions-csv",
+            args.predictions_latest,
+        ]
+        if bool(getattr(args, "skip_fetch", False)):
+            pred_cmd.append("--skip-fetch")
+        _run(pred_cmd)
 
     # 1b) Voting-model postprocess: compute weighted consensus/spread/confidence and overwrite tmax_predicted.
     _postprocess_voting(args.predictions_latest, weights_json="Data/weights.json")

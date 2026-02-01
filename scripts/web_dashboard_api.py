@@ -122,26 +122,28 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
     now_ts = times[-1]
     current_temp = temps[-1]
 
-    # Observed high so far today (station local date), using hourly observations only so
+    # Observed high so far today (station local date), using hourly observations so
     # the value matches NWS Time Series (weather.gov/wrh/timeseries?site=...&hourly=true).
-    # NWS uses observations at :51-:59 for each hour; sub-hourly spikes can otherwise
-    # show a "high" that doesn't appear on the timeseries page.
+    # NWS uses observations at :51-:59 for each hour. We process newest-first so that
+    # when we don't have :51-:59 for a hour yet, we use the latest reading in that hour
+    # (not the earliest), avoiding undercounts like Chicago showing 23° when current is 24.8°.
     tz = ZoneInfo(CITY_LATLON_TZ.get(city, {}).get("tz", "America/New_York"))
     today_local = dt.datetime.now(tz).date()
     hourly_temps_today: Dict[tuple, float] = {}  # (date, hour) -> temp
     all_temps_today: List[float] = []
-    for o in obs_list:
-        ts_utc = dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00"))
-        ts_local = ts_utc.astimezone(tz)
-        if ts_local.date() != today_local:
-            continue
-        all_temps_today.append(o["temp"])
-        # Prefer the "hourly" observation for this hour (minute 51-59 per NWS)
+    # Process newest-first so fallback per hour is latest observation, not first
+    obs_today = [
+        (dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).astimezone(tz), o["temp"])
+        for o in obs_list
+    ]
+    obs_today = [(ts, temp) for ts, temp in obs_today if ts.date() == today_local]
+    for ts_local, temp in sorted(obs_today, key=lambda x: x[0], reverse=True):
+        all_temps_today.append(temp)
         key = (today_local, ts_local.hour)
         if 51 <= ts_local.minute <= 59:
-            hourly_temps_today[key] = o["temp"]  # official hourly reading
+            hourly_temps_today[key] = temp  # official hourly reading (overwrites any fallback)
         elif key not in hourly_temps_today:
-            hourly_temps_today[key] = o["temp"]  # fallback so we have one value per hour
+            hourly_temps_today[key] = temp  # fallback: latest observation in this hour
     # Use max of hourly values when we have any; else fall back to max of all temps today
     if hourly_temps_today:
         observed_high_today = round(max(hourly_temps_today.values()), 2)
@@ -203,7 +205,7 @@ def _run_observation_fetch() -> None:
     with open(OBSERVATIONS_JSON, "w") as f:
         json.dump(payload, f, indent=2)
     write_header = not OBSERVATIONS_HISTORY_CSV.exists()
-    fieldnames = ["timestamp", "city", "stid", "temp", "observed_high_today", "trend_10m", "trend_30m", "trend_1h", "acceleration"]
+    fieldnames = ["timestamp", "city", "stid", "temp", "observed_high_today", "projected_high", "trend_10m", "trend_30m", "trend_1h", "acceleration"]
     with open(OBSERVATIONS_HISTORY_CSV, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
