@@ -487,13 +487,27 @@
                     lastRunEl.textContent = '';
                 }
             }
+            // Prefer display_date (next trade date); if no rows for it, show latest date we have
+            let tradeDate = displayDate;
+            let fallbackNote = '';
             if (displayDate && rows.length) {
-                rows = rows.filter(function(r) {
+                const forDisplay = rows.filter(function(r) {
                     const d = (r.date || r.trade_date || '').toString().trim();
                     return d === displayDate;
                 });
+                if (forDisplay.length > 0) {
+                    rows = forDisplay;
+                } else {
+                    // Requested date not in file — show latest date we have
+                    const dates = [...new Set(rows.map(r => (r.date || r.trade_date || '').toString().trim()).filter(Boolean))].sort();
+                    tradeDate = dates.length ? dates[dates.length - 1] : null;
+                    rows = rows.filter(r => (r.date || r.trade_date || '').toString().trim() === tradeDate);
+                    fallbackNote = ' <span class="text-amber-400/90">(next trade date ' + escapeHtml(displayDate) + ' not yet in file — run intraday pulse)</span>';
+                }
             }
-            const tradeDate = displayDate || (rows.length && rows[0].date ? rows[0].date : (rows[0] && rows[0].trade_date ? rows[0].trade_date : null));
+            if (!tradeDate && rows.length) {
+                tradeDate = rows[0].date || rows[0].trade_date || null;
+            }
             const cityOrder = ['ny', 'il', 'tx', 'fl'];
             const cityLabels = { 'ny': 'New York', 'il': 'Chicago', 'tx': 'Austin', 'fl': 'Miami' };
             const byCity = {};
@@ -539,7 +553,7 @@
                 html += '</tr>';
             });
             html += '</tbody></table>';
-            const header = tradeDate ? '<p class="text-slate-500 text-sm mb-3">Trade date: <strong class="text-slate-300">' + escapeHtml(tradeDate) + '</strong></p>' : '';
+            const header = tradeDate ? '<p class="text-slate-500 text-sm mb-3">Trade date: <strong class="text-slate-300">' + escapeHtml(tradeDate) + '</strong>' + fallbackNote + '</p>' : '';
             wrap.innerHTML = header + html;
         }
 

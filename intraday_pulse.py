@@ -1050,9 +1050,9 @@ if __name__ == "__main__":
                 _append_intraday_row(args.out_csv, row)
                 wrote += 1
 
-            # Only the primary (lead 0) trade_date should drive predictions_latest.csv;
-            # tomorrow's lead (lead 1) is for tracking, not for today's trade job.
-            if args.write_predictions and target_dt == trade_dt:
+            # Write predictions for both today and tomorrow so the dashboard always has
+            # the next trade date (e.g. after 7 PM ET we show tomorrow; file must have it).
+            if args.write_predictions:
                 spread_f = sigma if sigma is not None else ""
                 conf = "" if conf_final is None else f"{float(conf_final):.4f}"
                 conviction_str = (
