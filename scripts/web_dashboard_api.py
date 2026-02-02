@@ -165,6 +165,7 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
 
     # Single source of truth for projected daily high (same logic as at-risk)
     projected_high = observed_high_today
+    high_time = None
     cfg = CITY_LATLON_TZ.get(city, {})
     try:
         loc = LocationInfo(city, "", cfg.get("tz", "America/New_York"), cfg.get("lat", 0), cfg.get("lon", 0))
@@ -178,6 +179,7 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
+    time_temp_will_max = high_time.isoformat() if high_time else ""
     return {
         "city": city,
         "stid": stid,
@@ -189,6 +191,7 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
         "trend_30m": round(trend_30m, 4),
         "trend_1h": round(trend_1h, 4),
         "acceleration": round(trend_10m - trend_30m, 4),
+        "time_temp_will_max": time_temp_will_max,
     }
 
 def _run_observation_fetch() -> None:
