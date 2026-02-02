@@ -629,6 +629,63 @@ def insert_source_performance_row(row: Mapping[str, Any]) -> None:
     _with_cursor(_work)
 
 
+def insert_observation_row(row: Mapping[str, Any]) -> None:
+    """
+    Mirror of observations_history.csv writer (from web_dashboard_api observation fetch).
+    Expected keys: timestamp, city, stid, temp, observed_high_today, projected_high,
+    trend_10m, trend_30m, trend_1h, acceleration, time_temp_will_max (ISO or empty).
+    """
+
+    def _work(conn, cur) -> None:  # pragma: no cover - small wrapper
+        city_id = _ensure_city_id(cur, row.get("city"))
+        tt_max = (row.get("time_temp_will_max") or "").strip()
+        cur.execute(
+            """
+            INSERT INTO observations (
+                observed_at,
+                city_id,
+                stid,
+                temp,
+                observed_high_today,
+                projected_high,
+                trend_10m,
+                trend_30m,
+                trend_1h,
+                acceleration,
+                time_temp_will_max
+            )
+            VALUES (
+                %(observed_at)s,
+                %(city_id)s,
+                %(stid)s,
+                %(temp)s,
+                NULLIF(%(observed_high_today)s, '')::double precision,
+                NULLIF(%(projected_high)s, '')::double precision,
+                NULLIF(%(trend_10m)s, '')::double precision,
+                NULLIF(%(trend_30m)s, '')::double precision,
+                NULLIF(%(trend_1h)s, '')::double precision,
+                NULLIF(%(acceleration)s, '')::double precision,
+                NULLIF(%(time_temp_will_max)s, '')::timestamptz
+            )
+            """,
+            {
+                "observed_at": row.get("timestamp"),
+                "city_id": city_id,
+                "stid": row.get("stid"),
+                "temp": row.get("temp"),
+                "observed_high_today": row.get("observed_high_today"),
+                "projected_high": row.get("projected_high"),
+                "trend_10m": row.get("trend_10m"),
+                "trend_30m": row.get("trend_30m"),
+                "trend_1h": row.get("trend_1h"),
+                "acceleration": row.get("acceleration"),
+                "time_temp_will_max": tt_max if tt_max else None,
+            },
+        )
+
+    _with_cursor(_work)
+
+
 def insert_weights_history_row(row: Mapping[str, Any]) -> None:
     """
     Mirror of weights_history.csv writer.

@@ -24,6 +24,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
+
+try:
+    import db
+except ImportError:
+    db = None
 import numpy as np
 from dotenv import load_dotenv
 from astral import LocationInfo
@@ -208,20 +213,29 @@ def _run_observation_fetch() -> None:
     with open(OBSERVATIONS_JSON, "w") as f:
         json.dump(payload, f, indent=2)
     write_header = not OBSERVATIONS_HISTORY_CSV.exists()
-    fieldnames = ["timestamp", "city", "stid", "temp", "observed_high_today", "projected_high", "trend_10m", "trend_30m", "trend_1h", "acceleration"]
+    fieldnames = ["timestamp", "city", "stid", "temp", "observed_high_today", "projected_high", "trend_10m", "trend_30m", "trend_1h", "acceleration", "time_temp_will_max"]
     with open(OBSERVATIONS_HISTORY_CSV, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             w.writeheader()
         for r in results.values():
             w.writerow(r)
+    if db and getattr(db, "insert_observation_row", None):
+        for r in results.values():
+            try:
+                db.insert_observation_row(r)
+            except Exception:
+                pass
 
 # --- FastAPI app ---
 TRADES_CSV = DATA_DIR / "trades_history.csv"
 PREDICTIONS_LATEST = DATA_DIR / "predictions_latest.csv"
 INTRADAY_CSV = DATA_DIR / "intraday_forecasts.csv"
+SOURCE_PERFORMANCE_CSV = DATA_DIR / "source_performance.csv"
+EVAL_HISTORY_CSV = DATA_DIR / "eval_history.csv"
 DASHBOARD_HTML_PATH = Path(__file__).resolve().parent / "dashboard_web.html"
 MARKETS_HTML_PATH = Path(__file__).resolve().parent / "markets_web.html"
+ANALYTICS_HTML_PATH = Path(__file__).resolve().parent / "analytics_web.html"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -254,6 +268,35 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
         return []
     with open(path, "r", newline="") as f:
         return list(csv.DictReader(f))
+
+
+def _get_actuals_by_date_city() -> Dict[tuple, float]:
+    """(date_str, city) -> actual_tmax. From source_performance; fallback eval_history settlement_tmax_f."""
+    out: Dict[tuple, float] = {}
+    if SOURCE_PERFORMANCE_CSV.exists():
+        for row in read_csv(SOURCE_PERFORMANCE_CSV):
+            d = (row.get("date") or "").strip()[:10]
+            c = (row.get("city") or "").strip().lower()
+            if not d or not c:
+                continue
+            try:
+                out[(d, c)] = float(row.get("actual_tmax") or 0)
+            except (TypeError, ValueError):
+                continue
+    if EVAL_HISTORY_CSV.exists():
+        for row in read_csv(EVAL_HISTORY_CSV):
+            if not (row.get("settlement_tmax_f") or "").strip():
+                continue
+            d = (row.get("trade_date") or "").strip()[:10]
+            c = (row.get("city") or "").strip().lower()
+            if not d or not c:
+                continue
+            try:
+                out[(d, c)] = float(row.get("settlement_tmax_f") or 0)
+            except (TypeError, ValueError):
+                continue
+    return out
+
 
 async def observation_loop():
     """Background: fetch observations every FETCH_INTERVAL_SEC."""
@@ -343,6 +386,15 @@ async def markets_page():
         raise HTTPException(status_code=404, detail="markets_web.html not found")
     return HTMLResponse(content=MARKETS_HTML_PATH.read_text())
 
+
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page():
+    """Analytics page: forecasts vs actuals, projection vs actual, when to lock in."""
+    if not ANALYTICS_HTML_PATH.exists():
+        raise HTTPException(status_code=404, detail="analytics_web.html not found")
+    return HTMLResponse(content=ANALYTICS_HTML_PATH.read_text())
+
+
 @app.get("/api/status")
 async def get_status():
     return {"status": "ok", "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
@@ -352,6 +404,149 @@ async def get_observations():
     if not OBSERVATIONS_JSON.exists():
         return {"stations": {}, "last_update": None}
     return json.loads(OBSERVATIONS_JSON.read_text())
+
+
+# --- Analytics (forecasts vs actuals, projection vs actual, when to lock in) ---
+
+
+@app.get("/api/analytics/forecasts_vs_actuals")
+async def get_analytics_forecasts_vs_actuals():
+    """MAE per (city, source) and per source from source_performance.csv."""
+    if not SOURCE_PERFORMANCE_CSV.exists():
+        return {"by_city_source": [], "by_source": []}
+    rows = read_csv(SOURCE_PERFORMANCE_CSV)
+    by_key: Dict[tuple, List[float]] = {}  # (city, source) -> [abs_errors]
+    by_source: Dict[str, List[float]] = {}
+    for r in rows:
+        city = (r.get("city") or "").strip().lower()
+        source = (r.get("source_name") or "").strip()
+        if not city or not source:
+            continue
+        try:
+            err = float(r.get("absolute_error") or 0)
+        except (TypeError, ValueError):
+            continue
+        by_key.setdefault((city, source), []).append(err)
+        by_source.setdefault(source, []).append(err)
+    by_city_source = [
+        {"city": c, "source_name": s, "mae": round(sum(v) / len(v), 4), "n": len(v)}
+        for (c, s), v in sorted(by_key.items())
+    ]
+    by_source_list = [
+        {"source_name": s, "mae": round(sum(v) / len(v), 4), "n": len(v)}
+        for s, v in sorted(by_source.items())
+    ]
+    return {"by_city_source": by_city_source, "by_source": by_source_list}
+
+
+@app.get("/api/analytics/projection_vs_actual")
+async def get_analytics_projection_vs_actual():
+    """MAE of observation projected_high vs actual by city. Joins observations_history to actuals by (date, city)."""
+    actuals = _get_actuals_by_date_city()
+    if not OBSERVATIONS_HISTORY_CSV.exists():
+        return {"by_city": [], "n_observations": 0}
+    rows = read_csv(OBSERVATIONS_HISTORY_CSV)
+    by_city_errors: Dict[str, List[float]] = {}
+    n_joined = 0
+    for r in rows:
+        ts_str = (r.get("timestamp") or "").strip()
+        city = (r.get("city") or "").strip().lower()
+        if not ts_str or not city:
+            continue
+        try:
+            dt_utc = dt.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        date_str = dt_utc.strftime("%Y-%m-%d")
+        actual = actuals.get((date_str, city))
+        if actual is None:
+            continue
+        proj = r.get("projected_high")
+        if proj is None or (str(proj).strip() == ""):
+            proj = r.get("observed_high_today") or r.get("temp")
+        try:
+            proj_f = float(proj)
+        except (TypeError, ValueError):
+            continue
+        err = abs(proj_f - actual)
+        by_city_errors.setdefault(city, []).append(err)
+        n_joined += 1
+    by_city = [
+        {"city": c, "mae": round(sum(v) / len(v), 4), "n": len(v)}
+        for c, v in sorted(by_city_errors.items())
+    ]
+    return {"by_city": by_city, "n_observations": n_joined}
+
+
+@app.get("/api/analytics/lock_in")
+async def get_analytics_lock_in():
+    """MAE of projected_high vs actual by (city, hour_local) and by (city, trend_bucket)."""
+    actuals = _get_actuals_by_date_city()
+    if not OBSERVATIONS_HISTORY_CSV.exists():
+        return {"by_city_hour": [], "by_city_trend_bucket": []}
+    rows = read_csv(OBSERVATIONS_HISTORY_CSV)
+    by_city_hour: Dict[tuple, List[float]] = {}  # (city, hour) -> [errors]
+    by_city_trend: Dict[tuple, List[float]] = {}  # (city, trend_bucket) -> [errors]
+
+    def trend_bucket(trend_1h: Optional[float]) -> str:
+        if trend_1h is None:
+            return "unknown"
+        try:
+            t = float(trend_1h)
+        except (TypeError, ValueError):
+            return "unknown"
+        if t < 0.5:
+            return "<0.5"
+        if t < 1.0:
+            return "0.5-1"
+        if t < 2.0:
+            return "1-2"
+        return ">=2"
+
+    for r in rows:
+        ts_str = (r.get("timestamp") or "").strip()
+        city = (r.get("city") or "").strip().lower()
+        if not ts_str or not city:
+            continue
+        try:
+            dt_utc = dt.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        date_str = dt_utc.strftime("%Y-%m-%d")
+        actual = actuals.get((date_str, city))
+        if actual is None:
+            continue
+        proj = r.get("projected_high")
+        if proj is None or (str(proj).strip() == ""):
+            proj = r.get("observed_high_today") or r.get("temp")
+        try:
+            proj_f = float(proj)
+        except (TypeError, ValueError):
+            continue
+        err = abs(proj_f - actual)
+        tz = ZoneInfo(CITY_LATLON_TZ.get(city, {}).get("tz", "America/New_York"))
+        try:
+            local = dt_utc.astimezone(tz)
+            hour = local.hour
+        except Exception:
+            hour = dt_utc.hour
+        by_city_hour.setdefault((city, hour), []).append(err)
+        tr = r.get("trend_1h")
+        try:
+            tr_f = float(tr) if tr is not None and str(tr).strip() != "" else None
+        except (TypeError, ValueError):
+            tr_f = None
+        bucket = trend_bucket(tr_f)
+        by_city_trend.setdefault((city, bucket), []).append(err)
+    by_city_hour_list = [
+        {"city": c, "hour": h, "mae": round(sum(v) / len(v), 4), "n": len(v)}
+        for (c, h), v in sorted(by_city_hour.items())
+    ]
+    by_city_trend_list = [
+        {"city": c, "trend_bucket": b, "mae": round(sum(v) / len(v), 4), "n": len(v)}
+        for (c, b), v in sorted(by_city_trend.items())
+    ]
+    return {"by_city_hour": by_city_hour_list, "by_city_trend_bucket": by_city_trend_list}
 
 
 # Kalshi series tickers (same defaults as kalshi_trader) for at-risk bracket suggestions

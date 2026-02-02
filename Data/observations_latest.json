@@ -1,53 +1,57 @@
 {
-  "last_update": "2026-02-02T03:15:02.220126+00:00",
+  "last_update": "2026-02-02T23:54:49.295835+00:00",
   "stations": {
     "ny": {
       "city": "ny",
       "stid": "KNYC",
-      "timestamp": "2026-02-02T01:51:00+00:00",
-      "temp": 17.96,
-      "observed_high_today": 24.08,
-      "projected_high": 24.08,
+      "timestamp": "2026-02-02T22:51:00+00:00",
+      "temp": 32.0,
+      "observed_high_today": 35.06,
+      "projected_high": 35.06,
       "trend_10m": 0.0,
       "trend_30m": -1.08,
-      "trend_1h": -0.99,
-      "acceleration": 1.08
+      "trend_1h": -1.53,
+      "acceleration": 1.08,
+      "time_temp_will_max": "2026-02-02T14:09:33-05:00"
     },
     "il": {
       "city": "il",
       "stid": "KMDW",
-      "timestamp": "2026-02-02T02:50:00+00:00",
-      "temp": 21.2,
+      "timestamp": "2026-02-02T23:35:00+00:00",
+      "temp": 26.6,
       "observed_high_today": 26.96,
       "projected_high": 26.96,
-      "trend_10m": -4.32,
-      "trend_30m": -0.6597,
-      "trend_1h": -1.1148,
-      "acceleration": -3.6603
+      "trend_10m": -0.0,
+      "trend_30m": -0.0514,
+      "trend_1h": -0.0508,
+      "acceleration": 0.0514,
+      "time_temp_will_max": "2026-02-02T14:04:43-06:00"
     },
     "tx": {
       "city": "tx",
       "stid": "KAUS",
-      "timestamp": "2026-02-02T02:50:00+00:00",
-      "temp": 41.0,
-      "observed_high_today": 57.02,
-      "projected_high": 57.02,
-      "trend_10m": -4.32,
-      "trend_30m": -1.4745,
-      "trend_1h": -2.004,
-      "acceleration": -2.8455
+      "timestamp": "2026-02-02T23:35:00+00:00",
+      "temp": 68.0,
+      "observed_high_today": 68.0,
+      "projected_high": 68.0,
+      "trend_10m": -0.0,
+      "trend_30m": 0.0,
+      "trend_1h": -0.7516,
+      "acceleration": -0.0,
+      "time_temp_will_max": "2026-02-02T14:44:19-06:00"
     },
     "fl": {
       "city": "fl",
       "stid": "KMIA",
-      "timestamp": "2026-02-02T02:50:00+00:00",
-      "temp": 44.6,
-      "observed_high_today": 51.08,
-      "projected_high": 51.08,
-      "trend_10m": 0.0,
-      "trend_30m": -0.1036,
-      "trend_1h": -1.4647,
-      "acceleration": 0.1036
+      "timestamp": "2026-02-02T23:35:00+00:00",
+      "temp": 53.6,
+      "observed_high_today": 57.02,
+      "projected_high": 57.02,
+      "trend_10m": -0.0,
+      "trend_30m": -2.4126,
+      "trend_1h": -1.6108,
+      "acceleration": 2.4126,
+      "time_temp_will_max": "2026-02-02T14:34:25-05:00"
     }
   }
 }

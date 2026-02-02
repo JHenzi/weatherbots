@@ -333,3 +333,22 @@ SKIP: effective_confidence=0.636 < 0.75 (confidence=0.636 conviction=?)
 
 ----------- KXHIGHMIA / city=fl / trade_date=2026-02-01 -----------
 SKIP: effective_confidence=0.147 < 0.75 (confidence=0.147 conviction=?)
+[trade] 2026-02-02T07:00:01-05:00 trade_date=2026-02-02 (07:00 fetch + trade)
+[intraday_pulse.py] done start=2026-02-02T07:00:01.585799-05:00 trade_date=2026-02-02 cities_written=8 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Balance: available_cash=$46.06 → per-run cap=$23.03 (min(configured=$50.00, 0.50*balance))
+City budget caps: ny=$5.76, il=$5.76, tx=$5.76, fl=$5.76 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-02-02 -----------
+Intraday signal: ok=True n=4 trend=decreasing sigma=0.909 (no sizing impact)
+Selected bucket from forecast(mu): '29° to 30°' (mu=30.14) → market=KXHIGHNY-26FEB02-B29.5 ask=18¢ depth=25 (px=orderbook)
+Pred_mean=30.14 | chosen_bucket='29° to 30°' | market=KXHIGHNY-26FEB02-B29.5
+Order submitted: KXHIGHNY-26FEB02-B29.5
+
+----------- KXHIGHCHI / city=il / trade_date=2026-02-02 -----------
+SKIP: effective_confidence=0.742 < 0.75 (confidence=0.742 conviction=?)
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-02-02 -----------
+SKIP: effective_confidence=0.610 < 0.75 (confidence=0.610 conviction=?)
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-02-02 -----------
+SKIP: effective_confidence=0.674 < 0.75 (confidence=0.674 conviction=?)

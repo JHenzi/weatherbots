@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics — Weather Trader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .card { background-color: #1e293b; border: 1px solid #334155; }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-4">
+                <a href="/" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>
+                <a href="/markets" class="text-slate-400 hover:text-white text-sm">Markets</a>
+                <h1 class="text-2xl font-bold text-cyan-400">Analytics</h1>
+            </div>
+        </header>
+
+        <p class="text-slate-400 text-sm mb-6">Forecasts vs actuals, observation projection vs actuals, and when to lock in bets. Data from source_performance and observations_history.</p>
+
+        <!-- Section 1: Forecasts vs actuals -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-2 text-violet-400">Forecasts vs actuals</h2>
+            <p class="text-slate-500 text-xs mb-4">Which forecast source is most accurate for which cities? MAE = mean absolute error (°F).</p>
+            <div id="forecasts-loading" class="text-slate-500 text-center py-4">Loading…</div>
+            <div id="forecasts-content" class="hidden overflow-x-auto">
+                <div id="forecasts-by-source" class="mb-6"></div>
+                <div id="forecasts-by-city-source"></div>
+            </div>
+            <div id="forecasts-empty" class="hidden text-slate-500 text-center py-4">No source_performance data.</div>
+        </section>
+
+        <!-- Section 2: Observation projection vs actuals -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-2 text-amber-400">Observation projection vs actuals</h2>
+            <p class="text-slate-500 text-xs mb-4">How good is our warming-rate-based projected_high vs actual daily high? By city.</p>
+            <div id="projection-loading" class="text-slate-500 text-center py-4">Loading…</div>
+            <div id="projection-content" class="hidden overflow-x-auto"></div>
+            <div id="projection-empty" class="hidden text-slate-500 text-center py-4">No observation vs actual data (need observations_history + actuals).</div>
+        </section>
+
+        <!-- Section 3: When to lock in -->
+        <section class="card rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-2 text-emerald-400">When to lock in</h2>
+            <p class="text-slate-500 text-xs mb-4">Which hour of day (local) and which warming trend band has the lowest projection error? Best hour/trend = lock in then.</p>
+            <div id="lockin-loading" class="text-slate-500 text-center py-4">Loading…</div>
+            <div id="lockin-content" class="hidden">
+                <h3 class="text-sm font-semibold text-slate-300 mb-2">By city and hour (local)</h3>
+                <div id="lockin-by-hour" class="mb-6 overflow-x-auto"></div>
+                <h3 class="text-sm font-semibold text-slate-300 mb-2">By city and trend (trend_1h °/hr)</h3>
+                <div id="lockin-by-trend" class="overflow-x-auto"></div>
+            </div>
+            <div id="lockin-empty" class="hidden text-slate-500 text-center py-4">No lock-in data.</div>
+        </section>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(s);
+            return div.innerHTML;
+        }
+
+        async function loadForecastsVsActuals() {
+            const loading = document.getElementById('forecasts-loading');
+            const content = document.getElementById('forecasts-content');
+            const empty = document.getElementById('forecasts-empty');
+            try {
+                const res = await fetch(API_BASE + '/analytics/forecasts_vs_actuals');
+                const data = await res.json();
+                loading.classList.add('hidden');
+                const bySource = data.by_source || [];
+                const byCitySource = data.by_city_source || [];
+                if (bySource.length === 0 && byCitySource.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+                empty.classList.add('hidden');
+                content.classList.remove('hidden');
+
+                const bySourceEl = document.getElementById('forecasts-by-source');
+                if (bySource.length > 0) {
+                    const best = bySource.reduce((a, b) => (a.mae < b.mae ? a : b));
+                    bySourceEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">Source</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
+                        bySource.map(r => {
+                            const isBest = r.source_name === best.source_name;
+                            return '<tr class="border-b border-slate-700/50 ' + (isBest ? 'bg-slate-700/30' : '') + '"><td class="py-2 pr-4">' + escapeHtml(r.source_name) + (isBest ? ' <span class="text-cyan-400 text-xs">(best overall)</span>' : '') + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>';
+                        }).join('') + '</tbody></table>';
+                } else {
+                    bySourceEl.innerHTML = '';
+                }
+
+                const byCityEl = document.getElementById('forecasts-by-city-source');
+                if (byCitySource.length > 0) {
+                    const bestByCity = {};
+                    byCitySource.forEach(r => {
+                        const c = r.city;
+                        if (!bestByCity[c] || r.mae < bestByCity[c].mae) bestByCity[c] = r;
+                    });
+                    byCityEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Source</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
+                        byCitySource.map(r => {
+                            const isBest = bestByCity[r.city] && bestByCity[r.city].source_name === r.source_name;
+                            return '<tr class="border-b border-slate-700/50 ' + (isBest ? 'bg-slate-700/30' : '') + '"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + escapeHtml(r.source_name) + (isBest ? ' <span class="text-cyan-400 text-xs">(best)</span>' : '') + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>';
+                        }).join('') + '</tbody></table>';
+                } else {
+                    byCityEl.innerHTML = '';
+                }
+            } catch (err) {
+                loading.classList.add('hidden');
+                empty.textContent = err.message || 'Failed to load';
+                empty.classList.remove('hidden');
+            }
+        }
+
+        async function loadProjectionVsActual() {
+            const loading = document.getElementById('projection-loading');
+            const content = document.getElementById('projection-content');
+            const empty = document.getElementById('projection-empty');
+            try {
+                const res = await fetch(API_BASE + '/analytics/projection_vs_actual');
+                const data = await res.json();
+                loading.classList.add('hidden');
+                const byCity = data.by_city || [];
+                const nObs = data.n_observations || 0;
+                if (byCity.length === 0) {
+                    empty.classList.remove('hidden');
+                    empty.textContent = nObs === 0 ? 'No observation vs actual data (need observations_history + actuals).' : 'No projection vs actual aggregates.';
+                    return;
+                }
+                empty.classList.add('hidden');
+                content.classList.remove('hidden');
+                content.innerHTML = '<p class="text-slate-500 text-xs mb-2">Observations joined to actuals: ' + nObs + '</p><table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
+                    byCity.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
+            } catch (err) {
+                loading.classList.add('hidden');
+                empty.textContent = err.message || 'Failed to load';
+                empty.classList.remove('hidden');
+            }
+        }
+
+        async function loadLockIn() {
+            const loading = document.getElementById('lockin-loading');
+            const content = document.getElementById('lockin-content');
+            const empty = document.getElementById('lockin-empty');
+            try {
+                const res = await fetch(API_BASE + '/analytics/lock_in');
+                const data = await res.json();
+                loading.classList.add('hidden');
+                const byHour = data.by_city_hour || [];
+                const byTrend = data.by_city_trend_bucket || [];
+                if (byHour.length === 0 && byTrend.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+                empty.classList.add('hidden');
+                content.classList.remove('hidden');
+
+                const hourEl = document.getElementById('lockin-by-hour');
+                if (byHour.length > 0) {
+                    hourEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Hour (local)</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
+                        byHour.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + r.hour + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
+                } else {
+                    hourEl.innerHTML = '<p class="text-slate-500 text-sm">No by-hour data.</p>';
+                }
+
+                const trendEl = document.getElementById('lockin-by-trend');
+                if (byTrend.length > 0) {
+                    trendEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Trend bucket (°/hr)</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
+                        byTrend.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + escapeHtml(r.trend_bucket) + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
+                } else {
+                    trendEl.innerHTML = '<p class="text-slate-500 text-sm">No by-trend data.</p>';
+                }
+            } catch (err) {
+                loading.classList.add('hidden');
+                empty.textContent = err.message || 'Failed to load';
+                empty.classList.remove('hidden');
+            }
+        }
+
+        async function loadAll() {
+            await Promise.all([loadForecastsVsActuals(), loadProjectionVsActual(), loadLockIn()]);
+        }
+
+        loadAll();
+    </script>
+</body>
+</html>
