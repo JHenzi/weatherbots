@@ -29,6 +29,10 @@ This document describes the purpose and schema of the key data files used and ge
 
 ## Operational Logs
 
+### `observations_history.csv`
+- **Purpose**: Per-station observation snapshots throughout the day for backtesting when we "learn" the peak temperature. Written by the dashboard API observation loop.
+- **Key Columns**: `timestamp`, `city`, `stid`, `temp`, `observed_high_today`, `projected_high`, `trend_10m`, `trend_30m`, `trend_1h`, `acceleration`, `time_temp_will_max` (ISO time when temp will max, from solar model).
+
 ### `predictions_history.csv`
 - **Purpose**: A running log of every prediction made by the bot.
 - **Key Columns**: `date`, `city`, `tmax_predicted`, `tmax_lstm`, `tmax_forecast`, `spread_f`, `confidence_score`, `sources_used`.
@@ -54,6 +58,12 @@ This document describes the purpose and schema of the key data files used and ge
 ### `daily_metrics.csv`
 - **Purpose**: Aggregated daily performance metrics used for budget allocation.
 - **Key Columns**: `trade_date`, `city`, `metric_type` (mae_f, bucket_hit_rate), `value`.
+
+## Model Artifacts
+
+## Database (Postgres)
+
+When `ENABLE_PG_WRITE` is set, the same data is mirrored into Postgres. Key tables include `predictions`, `trades`, `decisions`, `eval_events`, `intraday_snapshots`, `observations`, `eval_metrics`, `source_performance`, `weights_history`. The `observations` table mirrors `observations_history.csv` (observed_at, city_id, stid, temp, observed_high_today, projected_high, trend_*, acceleration, time_temp_will_max).
 
 ## Model Artifacts
 

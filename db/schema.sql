@@ -208,3 +208,22 @@ CREATE TABLE IF NOT EXISTS weights_history (
 CREATE INDEX IF NOT EXISTS idx_weights_history_asof_city
     ON weights_history (as_of, city_id);
 
+-- Observation snapshots (observations_history.csv): projected high, delta, time temp will max.
+CREATE TABLE IF NOT EXISTS observations (
+    id                   BIGSERIAL PRIMARY KEY,
+    observed_at           TIMESTAMPTZ NOT NULL,
+    city_id               INTEGER NOT NULL REFERENCES cities(id),
+    stid                  TEXT NOT NULL,
+    temp                  DOUBLE PRECISION NOT NULL,
+    observed_high_today   DOUBLE PRECISION,
+    projected_high        DOUBLE PRECISION,
+    trend_10m             DOUBLE PRECISION,
+    trend_30m             DOUBLE PRECISION,
+    trend_1h              DOUBLE PRECISION,
+    acceleration          DOUBLE PRECISION,
+    time_temp_will_max    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_observations_city_observed
+    ON observations (city_id, observed_at);
+
