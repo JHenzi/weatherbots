@@ -5,20 +5,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # - These jobs assume /app/.env exists (mount it) so python-dotenv can load secrets.
 # - Logs go to Data/logs/*.cron.log (mount ./Data for persistence).
 
-# Intraday forecast pulse (append-only) every 2 hours (12x/day) local container time (America/New_York)
-# Stream to Docker logs AND append to file. These pulses target **today's** markets.
-00 00 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 02 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 04 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 06 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 08 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 10 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 12 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 14 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 16 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 18 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 20 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
-00 22 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
+# Intraday forecast pulse: 41 runs/day (within free-tier limits; see documentation/forecast_api_limits.md).
+# Binding limit: Google 10,000/month → 41 runs/day (8 calls/run × 41 × 30 ≈ 9,840). Tomorrow.io 25/hr, 500/day OK.
+# Every hour at :00 (24/day) + at :30 for hours 0-16 (17/day) = 41 runs/day.
+0 * * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
+30 0-16 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
 
 # Daily trade run for **today's** markets at 07:00am local container time (America/New_York)
 # (This run performs an early-morning forecast fetch + trades if gates pass.)
