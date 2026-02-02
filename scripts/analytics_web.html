@@ -5,190 +5,327 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analytics — Weather Trader</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; }
-        .card { background-color: #1e293b; border: 1px solid #334155; }
+        .card { background-color: #1e293b; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+        .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
+        .accuracy-high { color: #34d399; }
+        .accuracy-mid { color: #fbbf24; }
+        .accuracy-low { color: #f87171; }
     </style>
 </head>
-<body class="p-6">
-    <div class="max-w-6xl mx-auto">
-        <header class="flex justify-between items-center mb-6">
+<body class="p-6 antialiased">
+    <div class="max-w-7xl mx-auto space-y-8">
+        <header class="flex justify-between items-center">
             <div class="flex items-center gap-4">
-                <a href="/" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>
-                <a href="/markets" class="text-slate-400 hover:text-white text-sm">Markets</a>
+                <a href="/" class="text-slate-400 hover:text-white text-sm font-medium">← Dashboard</a>
+                <a href="/markets" class="text-slate-400 hover:text-white text-sm font-medium">Markets</a>
                 <h1 class="text-2xl font-bold text-cyan-400">Analytics</h1>
             </div>
         </header>
 
-        <p class="text-slate-400 text-sm mb-6">Forecasts vs actuals, observation projection vs actuals, and when to lock in bets. Data from source_performance and observations_history.</p>
+        <p class="text-slate-400 text-sm">Forecasts vs actuals, observation projection vs actuals, and when to lock in. Data from source_performance and observations_history.</p>
 
-        <!-- Section 1: Forecasts vs actuals -->
-        <section class="card rounded-xl p-6 mb-8">
-            <h2 class="text-xl font-semibold mb-2 text-violet-400">Forecasts vs actuals</h2>
-            <p class="text-slate-500 text-xs mb-4">Which forecast source is most accurate for which cities? MAE = mean absolute error (°F).</p>
-            <div id="forecasts-loading" class="text-slate-500 text-center py-4">Loading…</div>
-            <div id="forecasts-content" class="hidden overflow-x-auto">
-                <div id="forecasts-by-source" class="mb-6"></div>
-                <div id="forecasts-by-city-source"></div>
-            </div>
-            <div id="forecasts-empty" class="hidden text-slate-500 text-center py-4">No source_performance data.</div>
-        </section>
-
-        <!-- Section 2: Observation projection vs actuals -->
-        <section class="card rounded-xl p-6 mb-8">
-            <h2 class="text-xl font-semibold mb-2 text-amber-400">Observation projection vs actuals</h2>
-            <p class="text-slate-500 text-xs mb-4">How good is our warming-rate-based projected_high vs actual daily high? By city.</p>
-            <div id="projection-loading" class="text-slate-500 text-center py-4">Loading…</div>
-            <div id="projection-content" class="hidden overflow-x-auto"></div>
-            <div id="projection-empty" class="hidden text-slate-500 text-center py-4">No observation vs actual data (need observations_history + actuals).</div>
-        </section>
-
-        <!-- Section 3: When to lock in -->
-        <section class="card rounded-xl p-6 mb-8">
-            <h2 class="text-xl font-semibold mb-2 text-emerald-400">When to lock in</h2>
-            <p class="text-slate-500 text-xs mb-4">Which hour of day (local) and which warming trend band has the lowest projection error? Best hour/trend = lock in then.</p>
-            <div id="lockin-loading" class="text-slate-500 text-center py-4">Loading…</div>
-            <div id="lockin-content" class="hidden">
-                <h3 class="text-sm font-semibold text-slate-300 mb-2">By city and hour (local)</h3>
-                <div id="lockin-by-hour" class="mb-6 overflow-x-auto"></div>
-                <h3 class="text-sm font-semibold text-slate-300 mb-2">By city and trend (trend_1h °/hr)</h3>
-                <div id="lockin-by-trend" class="overflow-x-auto"></div>
-            </div>
-            <div id="lockin-empty" class="hidden text-slate-500 text-center py-4">No lock-in data.</div>
-        </section>
+        <div id="loading" class="text-slate-500 text-center py-12">Loading…</div>
+        <div id="root" class="hidden"></div>
+        <div id="error" class="hidden text-amber-400 text-center py-8"></div>
     </div>
 
     <script>
         const API_BASE = '/api';
 
-        function escapeHtml(s) {
-            if (s == null) return '';
-            const div = document.createElement('div');
-            div.textContent = String(s);
-            return div.innerHTML;
-        }
-
-        async function loadForecastsVsActuals() {
-            const loading = document.getElementById('forecasts-loading');
-            const content = document.getElementById('forecasts-content');
-            const empty = document.getElementById('forecasts-empty');
-            try {
-                const res = await fetch(API_BASE + '/analytics/forecasts_vs_actuals');
-                const data = await res.json();
-                loading.classList.add('hidden');
-                const bySource = data.by_source || [];
-                const byCitySource = data.by_city_source || [];
-                if (bySource.length === 0 && byCitySource.length === 0) {
-                    empty.classList.remove('hidden');
-                    return;
-                }
-                empty.classList.add('hidden');
-                content.classList.remove('hidden');
-
-                const bySourceEl = document.getElementById('forecasts-by-source');
-                if (bySource.length > 0) {
-                    const best = bySource.reduce((a, b) => (a.mae < b.mae ? a : b));
-                    bySourceEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">Source</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
-                        bySource.map(r => {
-                            const isBest = r.source_name === best.source_name;
-                            return '<tr class="border-b border-slate-700/50 ' + (isBest ? 'bg-slate-700/30' : '') + '"><td class="py-2 pr-4">' + escapeHtml(r.source_name) + (isBest ? ' <span class="text-cyan-400 text-xs">(best overall)</span>' : '') + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>';
-                        }).join('') + '</tbody></table>';
-                } else {
-                    bySourceEl.innerHTML = '';
-                }
-
-                const byCityEl = document.getElementById('forecasts-by-city-source');
-                if (byCitySource.length > 0) {
-                    const bestByCity = {};
-                    byCitySource.forEach(r => {
-                        const c = r.city;
-                        if (!bestByCity[c] || r.mae < bestByCity[c].mae) bestByCity[c] = r;
-                    });
-                    byCityEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Source</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
-                        byCitySource.map(r => {
-                            const isBest = bestByCity[r.city] && bestByCity[r.city].source_name === r.source_name;
-                            return '<tr class="border-b border-slate-700/50 ' + (isBest ? 'bg-slate-700/30' : '') + '"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + escapeHtml(r.source_name) + (isBest ? ' <span class="text-cyan-400 text-xs">(best)</span>' : '') + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>';
-                        }).join('') + '</tbody></table>';
-                } else {
-                    byCityEl.innerHTML = '';
-                }
-            } catch (err) {
-                loading.classList.add('hidden');
-                empty.textContent = err.message || 'Failed to load';
-                empty.classList.remove('hidden');
-            }
-        }
-
-        async function loadProjectionVsActual() {
-            const loading = document.getElementById('projection-loading');
-            const content = document.getElementById('projection-content');
-            const empty = document.getElementById('projection-empty');
-            try {
-                const res = await fetch(API_BASE + '/analytics/projection_vs_actual');
-                const data = await res.json();
-                loading.classList.add('hidden');
-                const byCity = data.by_city || [];
-                const nObs = data.n_observations || 0;
-                if (byCity.length === 0) {
-                    empty.classList.remove('hidden');
-                    empty.textContent = nObs === 0 ? 'No observation vs actual data (need observations_history + actuals).' : 'No projection vs actual aggregates.';
-                    return;
-                }
-                empty.classList.add('hidden');
-                content.classList.remove('hidden');
-                content.innerHTML = '<p class="text-slate-500 text-xs mb-2">Observations joined to actuals: ' + nObs + '</p><table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
-                    byCity.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
-            } catch (err) {
-                loading.classList.add('hidden');
-                empty.textContent = err.message || 'Failed to load';
-                empty.classList.remove('hidden');
-            }
-        }
-
-        async function loadLockIn() {
-            const loading = document.getElementById('lockin-loading');
-            const content = document.getElementById('lockin-content');
-            const empty = document.getElementById('lockin-empty');
-            try {
-                const res = await fetch(API_BASE + '/analytics/lock_in');
-                const data = await res.json();
-                loading.classList.add('hidden');
-                const byHour = data.by_city_hour || [];
-                const byTrend = data.by_city_trend_bucket || [];
-                if (byHour.length === 0 && byTrend.length === 0) {
-                    empty.classList.remove('hidden');
-                    return;
-                }
-                empty.classList.add('hidden');
-                content.classList.remove('hidden');
-
-                const hourEl = document.getElementById('lockin-by-hour');
-                if (byHour.length > 0) {
-                    hourEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Hour (local)</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
-                        byHour.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + r.hour + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
-                } else {
-                    hourEl.innerHTML = '<p class="text-slate-500 text-sm">No by-hour data.</p>';
-                }
-
-                const trendEl = document.getElementById('lockin-by-trend');
-                if (byTrend.length > 0) {
-                    trendEl.innerHTML = '<table class="w-full text-sm border-collapse"><thead><tr class="text-left text-slate-400 border-b border-slate-600"><th class="py-2 pr-4">City</th><th class="py-2 pr-4">Trend bucket (°/hr)</th><th class="py-2 pr-4">MAE (°F)</th><th class="py-2">n</th></tr></thead><tbody>' +
-                        byTrend.map(r => '<tr class="border-b border-slate-700/50"><td class="py-2 pr-4">' + escapeHtml(r.city) + '</td><td class="py-2 pr-4">' + escapeHtml(r.trend_bucket) + '</td><td class="py-2 pr-4">' + Number(r.mae).toFixed(2) + '</td><td class="py-2">' + r.n + '</td></tr>').join('') + '</tbody></table>';
-                } else {
-                    trendEl.innerHTML = '<p class="text-slate-500 text-sm">No by-trend data.</p>';
-                }
-            } catch (err) {
-                loading.classList.add('hidden');
-                empty.textContent = err.message || 'Failed to load';
-                empty.classList.remove('hidden');
-            }
+        function accuracyColor(mae) {
+            if (mae <= 2) return 'accuracy-high';
+            if (mae <= 4) return 'accuracy-mid';
+            return 'accuracy-low';
         }
 
         async function loadAll() {
-            await Promise.all([loadForecastsVsActuals(), loadProjectionVsActual(), loadLockIn()]);
+            const loading = document.getElementById('loading');
+            const root = document.getElementById('root');
+            const errEl = document.getElementById('error');
+            try {
+                const [forecastsRes, projectionRes, lockInRes] = await Promise.all([
+                    fetch(API_BASE + '/analytics/forecasts_vs_actuals'),
+                    fetch(API_BASE + '/analytics/projection_vs_actual'),
+                    fetch(API_BASE + '/analytics/lock_in')
+                ]);
+                const forecasts = await forecastsRes.json();
+                const projection = await projectionRes.json();
+                const lockIn = await lockInRes.json();
+
+                const bySource = forecasts.by_source || [];
+                const byCitySource = forecasts.by_city_source || [];
+                const byCity = projection.by_city || [];
+                const nObs = projection.n_observations || 0;
+                const byHour = lockIn.by_city_hour || [];
+                const byTrend = lockIn.by_city_trend_bucket || [];
+
+                const totalPoints = bySource.reduce((s, r) => s + (r.n || 0), 0) +
+                    byCity.reduce((s, r) => s + (r.n || 0), 0) +
+                    byHour.reduce((s, r) => s + (r.n || 0), 0);
+                const allMae = [...bySource.map(r => r.mae), ...byCity.map(r => r.mae)].filter(x => x != null);
+                const avgMae = allMae.length ? allMae.reduce((a, b) => a + b, 0) / allMae.length : null;
+                const topRegion = byCity.length
+                    ? byCity.reduce((a, b) => (a.mae < b.mae ? a : b), byCity[0])
+                    : null;
+                const bestSource = bySource.length ? bySource.reduce((a, b) => (a.mae < b.mae ? a : b), bySource[0]) : null;
+
+                const summary = {
+                    avgMae: avgMae != null ? Math.round(avgMae * 100) / 100 : null,
+                    topRegion: topRegion ? topRegion.city : null,
+                    topRegionMae: topRegion ? topRegion.mae : null,
+                    totalDataPoints: totalPoints,
+                    bestSource: bestSource ? bestSource.source_name : null,
+                    bestSourceMae: bestSource ? bestSource.mae : null
+                };
+
+                loading.classList.add('hidden');
+                errEl.classList.add('hidden');
+                root.classList.remove('hidden');
+                root.dataset.ready = '1';
+
+                window.__analyticsData__ = { forecasts, projection, lockIn, summary };
+                window.__analyticsRender__ && window.__analyticsRender__();
+            } catch (err) {
+                loading.classList.add('hidden');
+                root.classList.add('hidden');
+                errEl.textContent = err.message || 'Failed to load analytics';
+                errEl.classList.remove('hidden');
+            }
         }
 
         loadAll();
+    </script>
+    <script>
+        (function() {
+            const e = React.createElement;
+            const Recharts = window.Recharts;
+            if (!Recharts) {
+                document.getElementById('root').innerHTML = '<p class="text-amber-400">Recharts failed to load. Check CDN.</p>';
+                document.getElementById('root').classList.remove('hidden');
+                return;
+            }
+            const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend, CartesianGrid } = Recharts;
+
+            const DEFAULT_PAGE_SIZE = 5;
+            const PAGE_SIZES = [5, 10, 25, 50];
+
+            function SummaryCard({ title, value, sub }) {
+                return e('div', { className: 'card rounded-xl p-5 flex flex-col' },
+                    e('div', { className: 'text-slate-400 text-sm font-medium mb-1' }, title),
+                    e('div', { className: 'num text-2xl font-semibold text-white' }, value ?? '—'),
+                    sub != null ? e('div', { className: 'num text-slate-500 text-xs mt-1' }, sub) : null
+                );
+            }
+
+            function CollapsibleSection({ title, defaultOpen, children }) {
+                const [open, setOpen] = React.useState(defaultOpen !== false);
+                return e('section', { className: 'card rounded-xl overflow-hidden' },
+                    e('button', {
+                        type: 'button',
+                        className: 'w-full text-left px-6 py-4 flex items-center justify-between text-lg font-semibold text-slate-200 hover:bg-slate-800/50 transition-colors',
+                        onClick: () => setOpen(!open)
+                    }, title, e('span', { className: 'text-slate-500 text-sm' }, open ? '▼' : '▶')),
+                    open ? e('div', { className: 'px-6 pb-6 pt-0 border-t border-slate-700/50' }, children) : null
+                );
+            }
+
+            function PaginatedTable({ rows, columns, idPrefix, pageSize: initialPageSize, searchKeys }) {
+                const [page, setPage] = React.useState(0);
+                const [pageSize, setPageSize] = React.useState(initialPageSize || DEFAULT_PAGE_SIZE);
+                const [search, setSearch] = React.useState('');
+                const [expanded, setExpanded] = React.useState(false);
+                const filtered = search && searchKeys
+                    ? rows.filter(r => searchKeys.some(k => String(r[k] || '').toLowerCase().includes(search.toLowerCase())))
+                    : rows;
+                const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+                const currentPage = Math.min(page, totalPages - 1);
+                const slice = expanded ? filtered : filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+                const showPagination = filtered.length > pageSize && !expanded;
+                return e('div', { className: 'space-y-3' },
+                    searchKeys && searchKeys.length
+                        ? e('div', { className: 'flex items-center gap-3' },
+                            e('input', {
+                                type: 'search',
+                                placeholder: 'Filter…',
+                                className: 'bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 w-48',
+                                value: search,
+                                onChange: ev => { setSearch(ev.target.value); setPage(0); }
+                            })
+                        ) : null,
+                    e('div', { className: 'overflow-x-auto' },
+                        e('table', { className: 'w-full text-sm border-collapse' },
+                            e('thead', null,
+                                e('tr', { className: 'text-left text-slate-400 border-b border-slate-600' },
+                                    columns.map(col => e('th', { key: col.key, className: 'py-2 pr-4 font-medium' }, col.label))
+                                )
+                            ),
+                            e('tbody', null,
+                                slice.length === 0 ? e('tr', null, e('td', { colSpan: columns.length, className: 'py-4 text-slate-500 text-center' }, 'No rows match')) :
+                                slice.map((row, i) =>
+                                    e('tr', { key: i, className: 'border-b border-slate-700/50 hover:bg-slate-800/30' },
+                                        columns.map(col => {
+                                            let content = row[col.key];
+                                            if (col.render) content = col.render(row);
+                                            const cls = col.num ? 'num ' + (col.accuracy ? accuracyColor(row[col.accuracy]) : '') : '';
+                                            return e('td', { key: col.key, className: 'py-2 pr-4 ' + (cls || '') }, content);
+                                        })
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    filtered.length > pageSize && e('div', { className: 'flex items-center justify-between text-sm' },
+                        e('span', { className: 'text-slate-500' }, 'Showing ' + slice.length + ' of ' + filtered.length),
+                        expanded
+                            ? e('button', { type: 'button', className: 'text-cyan-400 hover:underline', onClick: () => setExpanded(false) }, 'Show less')
+                            : e('button', { type: 'button', className: 'text-cyan-400 hover:underline', onClick: () => setExpanded(true) }, 'View all (' + filtered.length + ')')
+                    ),
+                    showPagination && e('div', { className: 'flex items-center gap-2 text-sm' },
+                        e('span', { className: 'text-slate-500' }, 'Page'),
+                        e('select', {
+                            className: 'bg-slate-800 border border-slate-600 rounded px-2 py-1 num text-sm',
+                            value: pageSize,
+                            onChange: ev => { setPageSize(Number(ev.target.value)); setPage(0); }
+                        }, PAGE_SIZES.map(n => e('option', { key: n, value: n }, n))),
+                        e('button', { type: 'button', disabled: currentPage <= 0, className: 'px-2 py-1 rounded bg-slate-700 disabled:opacity-50 text-slate-300', onClick: () => setPage(p => Math.max(0, p - 1)) }, 'Prev'),
+                        e('span', { className: 'num text-slate-400' }, (currentPage + 1) + ' / ' + totalPages),
+                        e('button', { type: 'button', disabled: currentPage >= totalPages - 1, className: 'px-2 py-1 rounded bg-slate-700 disabled:opacity-50 text-slate-300', onClick: () => setPage(p => Math.min(totalPages - 1, p + 1)) }, 'Next')
+                    )
+                );
+            }
+
+            function BarChartCard({ title, data, dataKey, valueKey, nameKey, colorByValue }) {
+                if (!data || data.length === 0) return e('div', { className: 'text-slate-500 text-sm' }, 'No data');
+                const chartData = data.slice(0, 20);
+                const nameK = nameKey || dataKey;
+                const valK = valueKey || 'mae';
+                return e('div', { className: 'space-y-2' },
+                    title ? e('h3', { className: 'text-sm font-semibold text-slate-300' }, title) : null,
+                    e(ResponsiveContainer, { width: '100%', height: 280 },
+                        e(BarChart, { data: chartData, margin: { top: 8, right: 8, left: 8, bottom: 8 } },
+                            e(CartesianGrid, { strokeDasharray: '3 3', stroke: '#334155' }),
+                            e(XAxis, { dataKey: nameK, tick: { fill: '#94a3b8', fontSize: 11 }, stroke: '#64748b' }),
+                            e(YAxis, { tick: { fill: '#94a3b8', fontSize: 11 }, stroke: '#64748b' }),
+                            e(Tooltip, { contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155' }, labelStyle: { color: '#94a3b8' } }),
+                            e(Bar, { dataKey: valK, fill: '#22d3ee', radius: [4, 4, 0, 0] },
+                                colorByValue && chartData.map(function(entry, i) {
+                                    const v = entry[valK];
+                                    const c = v <= 2 ? '#34d399' : v <= 4 ? '#fbbf24' : '#f87171';
+                                    return e(Cell, { key: i, fill: c });
+                                })
+                            )
+                        )
+                    )
+                );
+            }
+
+            function App() {
+                const data = window.__analyticsData__;
+                if (!data) return e('div', { className: 'text-slate-500' }, 'No data');
+                const { forecasts, projection, lockIn, summary } = data;
+                const bySource = forecasts.by_source || [];
+                const byCitySource = forecasts.by_city_source || [];
+                const byCity = projection.by_city || [];
+                const byHour = lockIn.by_city_hour || [];
+                const byTrend = lockIn.by_city_trend_bucket || [];
+
+                return e('div', { className: 'space-y-8' },
+                    e('div', { className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' },
+                        e(SummaryCard, { key: 'avg', title: 'Average MAE (°F)', value: summary.avgMae != null ? summary.avgMae.toFixed(2) : null, sub: 'Lower is better' }),
+                        e(SummaryCard, { key: 'region', title: 'Top region', value: summary.topRegion ? summary.topRegion.toUpperCase() : null, sub: summary.topRegionMae != null ? 'MAE ' + summary.topRegionMae.toFixed(2) + '°F' : null }),
+                        e(SummaryCard, { key: 'points', title: 'Total data points', value: summary.totalDataPoints.toLocaleString(), sub: 'Across forecasts & observations' }),
+                        e(SummaryCard, { key: 'source', title: 'Best source', value: summary.bestSource || null, sub: summary.bestSourceMae != null ? 'MAE ' + summary.bestSourceMae.toFixed(2) + '°F' : null })
+                    ),
+
+                    e(CollapsibleSection, { key: 'forecasts', title: 'Forecasts vs actuals', defaultOpen: true },
+                        e('div', { className: 'space-y-8' },
+                            bySource.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by source (bar chart)'),
+                                e(BarChartCard, { data: bySource, dataKey: 'source_name', valueKey: 'mae', nameKey: 'source_name', colorByValue: true })
+                            ),
+                            byCitySource.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'By city & source (table, color by accuracy)'),
+                                e(PaginatedTable, {
+                                    rows: byCitySource,
+                                    columns: [
+                                        { key: 'city', label: 'City' },
+                                        { key: 'source_name', label: 'Source' },
+                                        { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' },
+                                        { key: 'n', label: 'n', num: true }
+                                    ],
+                                    pageSize: DEFAULT_PAGE_SIZE,
+                                    searchKeys: ['city', 'source_name']
+                                })
+                            ),
+                            bySource.length === 0 && byCitySource.length === 0 && e('p', { className: 'text-slate-500 text-sm' }, 'No source_performance data.')
+                        )
+                    ),
+
+                    e(CollapsibleSection, { key: 'projection', title: 'Observation projection vs actuals' },
+                        e('div', { className: 'space-y-8' },
+                            byCity.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by city (projected_high vs actual)'),
+                                e(BarChartCard, { data: byCity, dataKey: 'city', valueKey: 'mae', nameKey: 'city', colorByValue: true })
+                            ),
+                            byCity.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'Table'),
+                                e(PaginatedTable, {
+                                    rows: byCity,
+                                    columns: [
+                                        { key: 'city', label: 'City' },
+                                        { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' },
+                                        { key: 'n', label: 'n', num: true }
+                                    ],
+                                    pageSize: DEFAULT_PAGE_SIZE,
+                                    searchKeys: ['city']
+                                })
+                            ),
+                            byCity.length === 0 && e('p', { className: 'text-slate-500 text-sm' }, 'No observation vs actual data.')
+                        )
+                    ),
+
+                    e(CollapsibleSection, { key: 'lockin', title: 'When to lock in' },
+                        e('div', { className: 'space-y-8' },
+                            byHour.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by city & hour (local)'),
+                                e(BarChartCard, { data: byHour.slice(0, 24).map(r => ({ ...r, name: r.city + ' h' + r.hour })), dataKey: 'name', valueKey: 'mae', nameKey: 'name', colorByValue: true })
+                            ),
+                            byTrend.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by city & trend bucket (°/hr)'),
+                                e(BarChartCard, { data: byTrend.map(r => ({ ...r, name: r.city + ' ' + r.trend_bucket })), dataKey: 'name', valueKey: 'mae', nameKey: 'name', colorByValue: true })
+                            ),
+                            (byHour.length > 0 || byTrend.length > 0) && e('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
+                                byHour.length > 0 && e('div', null,
+                                    e('h3', { className: 'text-sm font-semibold text-slate-300 mb-2' }, 'By hour (top rows)'),
+                                    e(PaginatedTable, { rows: byHour, columns: [{ key: 'city', label: 'City' }, { key: 'hour', label: 'Hour', num: true }, { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' }, { key: 'n', label: 'n', num: true }], pageSize: DEFAULT_PAGE_SIZE, searchKeys: ['city'] })
+                                ),
+                                byTrend.length > 0 && e('div', null,
+                                    e('h3', { className: 'text-sm font-semibold text-slate-300 mb-2' }, 'By trend bucket'),
+                                    e(PaginatedTable, { rows: byTrend, columns: [{ key: 'city', label: 'City' }, { key: 'trend_bucket', label: 'Trend (°/hr)' }, { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' }, { key: 'n', label: 'n', num: true }], pageSize: DEFAULT_PAGE_SIZE, searchKeys: ['city', 'trend_bucket'] })
+                                )
+                            ),
+                            byHour.length === 0 && byTrend.length === 0 && e('p', { className: 'text-slate-500 text-sm' }, 'No lock-in data.')
+                        )
+                    )
+                );
+            }
+
+            var analyticsRoot = null;
+            function render() {
+                if (!document.getElementById('root').dataset.ready) return;
+                var el = document.getElementById('root');
+                if (!analyticsRoot) analyticsRoot = ReactDOM.createRoot(el);
+                analyticsRoot.render(e(App));
+            }
+
+            window.__analyticsRender__ = render;
+            if (document.getElementById('root').dataset.ready) render();
+        })();
     </script>
 </body>
 </html>
