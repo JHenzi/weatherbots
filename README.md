@@ -2,6 +2,18 @@
 
 This repo predicts **daily maximum temperature** for 4 locations and maps the prediction into Kalshi “high temperature” markets for automated (or dry-run) trading.
 
+### Inspiration and origin
+
+This project is **inspired by and builds on** the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo (Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024). It reuses and extends the same core ideas:
+
+- **LSTM models** for daily max-temperature prediction (one model per city, trained on historical weather data)
+- **Data pipeline**: multiple weather APIs (Open-Meteo, Visual Crossing, Meteostat, NOAA NCEI), merged and cleaned into per-city DataFrames, then pickled for training and inference
+- **Kalshi trading**: automated (or dry-run) trading on Kalshi daily high-temperature markets using predictions
+
+The original repo used a 10-day timestep LSTM, Adam optimizer, and 80 epochs; this repo keeps the same LSTM architecture and data sources while adding provider-forecast blending, calibration, Docker scheduling, and richer operational tooling.
+
+**Mapping from the LSTM-Automated-Trading-System repo:** data fetching → `data_fetcher_new.ipynb` (or `daily_prediction.py` for daily ingest); model training → `train_models.py` (cf. `data_lstm.ipynb`); daily prediction → `daily_prediction.py`; Kalshi trading → `kalshi_trader.py`. Trained models live in `Data/model_<city>.keras`; cleaned data in `Data/prediction_data_cleaned_<city>.pkl`.
+
 ## Documentation
 
 Project docs live in `documentation/`:
@@ -188,9 +200,18 @@ This is the \(\sigma\) used for bucket probabilities and EV logging.
 ## Data flow (end-to-end)
 
 ### 1) Historical + daily weather ingestion
-The ingestion logic lives in `daily_prediction.py` (and historically in `data_fetcher_new.ipynb`).
+The ingestion logic lives in `daily_prediction.py` (and historically in `data_fetcher_new.ipynb`), following the same data-sources approach as the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo.
 
-**Sources**
+**Data sources used** (inspired by that repo):
+
+| Source | Features used |
+|--------|----------------|
+| [Open-Meteo](https://open-meteo.com/) | Maximum temperature, precipitation |
+| [Visual Crossing](https://www.visualcrossing.com/) | Maximum temperature, humidity |
+| [Meteostat](https://meteostat.net/en/) | Maximum temperature, minimum temperature |
+| [NOAA NCEI](https://www.ncei.noaa.gov/) | Maximum temperature, minimum temperature |
+
+**Details**
 - **Open-Meteo** archive API: tmax/tmin, sunshine duration, precipitation hours, wind
 - **Visual Crossing** timeline API: tmax/tmin, humidity, wind (requires API key)
 - **Meteostat**: tmax/tmin (and other station fields)
@@ -454,20 +475,25 @@ python kalshi_trader.py --env demo --trade-date 2026-01-23 --send-orders
 
 ---
 
-## LSTM model details (historical)
-Training is in `train_models.py` (and historically `data_lstm.ipynb`):
-- Separate model per city (saved as `Data/model_<city>.keras` and versioned under `Data/models/<YYYYMMDD>/`)
-- Input window: `time_steps = 10` days
-- Features used:
-  - `day_of_year`, `tmax`, `tmin`, `prec`, `humi`
-- Preprocessing:
-  - `StandardScaler` is fit on the full feature matrix, and inference uses the same feature set
-  - Model predicts the *scaled* `tmax`; a dummy feature vector is inverse-transformed to recover °F
+## LSTM model details (inspired by LSTM-Automated-Trading-System)
+
+The LSTM setup is **inspired by and aligned with** the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo: LSTMs are well-suited to weather forecasting because they capture sequential patterns and seasonality (trend, seasonality, residual) in temperature over time.
+
+**Training** is in `train_models.py` (and historically `data_lstm.ipynb` in the upstream repo):
+
+- **One model per city**, saved as `Data/model_<city>.keras` (e.g. `model_fl.keras`, `model_il.keras`, `model_ny.keras`, `model_tx.keras`) and optionally versioned under `Data/models/<YYYYMMDD>/`
+- **Input window**: `time_steps = 10` days (same as the original repo)
+- **Features used**: `day_of_year`, `tmax`, `tmin`, and optionally `prec`, `humi` (from the merged multi-source data)
+- **Optimizer**: Adam (same as upstream)
+- **Epochs**: configurable (e.g. 30 in this repo; the original used 80)
+- **Preprocessing**: `StandardScaler` fit on the full feature matrix; inference uses the same feature set. The model predicts *scaled* `tmax`; a dummy feature vector is inverse-transformed to recover °F.
+
+**Cleaned data for LSTM** (same naming as upstream): after cleaning and feature engineering, per-city data is stored as `Data/prediction_data_cleaned_<city>.pkl` (e.g. `prediction_data_cleaned_fl.pkl`, `prediction_data_cleaned_il.pkl`, `prediction_data_cleaned_ny.pkl`, `prediction_data_cleaned_tx.pkl`).
 
 ---
 
 ## Notes / legacy report
-This repo originated from a BU CS542 common-task project. Historical trade logs and report screenshots remain in the repo (e.g. `Kalshi-Recent-Activity-Pranav.csv` and images under `CS542 Common Task Report .../`).
+This repo originated from a BU CS542 common-task project and is **inspired by and copied from** the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo (Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024), including LSTM models and data pipelines. Historical trade logs and report screenshots remain in the repo (e.g. `Kalshi-Recent-Activity-Pranav.csv` and images under `CS542 Common Task Report .../`).
 
 ---
 
@@ -509,3 +535,11 @@ For each city + trade date, store:
 Once we have enough logged episodes (features → action → PnL), we can consider:
 - contextual bandits for “which model/mode to trust today”
 - constrained RL for position sizing (risk limits, max loss, liquidity-aware execution)
+
+---
+
+## References
+
+- [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) — Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024 (inspiration for LSTM models and data pipeline)
+- [Keras Documentation](https://keras.io/guides/)
+- [Predicting Temperature of Major Cities Using Machine Learning and Deep Learning](https://arxiv.org/abs/2309.13330)
