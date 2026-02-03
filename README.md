@@ -12,21 +12,46 @@ Inspired by the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka
 
 ## Documentation
 
-**Visit these dedicated pages for full details:**
+Visit these dedicated pages for full details — each link opens a dedicated doc with full content.
 
-- **[→ Operational runbook](documentation/operational_runbook.md)** — Autonomous operation, one-time setup, budget and live trading, idempotency, logs, generate predictions, dry-run, place orders.
-- **[→ Docker setup](documentation/docker_setup.md)** — Prepare `.env`, mount Kalshi key, run container, logs, data persistence, schedule/timezone, 13:00 local gate.
-- **[→ Environment variables](documentation/environment_variables.md)** — Full table of required and optional env vars and secrets.
-- **[→ Dashboard](documentation/dashboard.md)** — Web UI and TUI: how to run, pages, observations.
-- **[→ Data flow](documentation/data_flow.md)** — End-to-end: ingestion, cleaning, prediction modes, writing predictions, provider limits, weights/consensus, Kalshi budgeting and sigma.
-- **[→ Kalshi markets](documentation/kalshi_markets.md)** — Series tickers, NWS resolution, contract selection, authentication, dry-run.
-- **[→ LSTM models](documentation/lstm_models.md)** — Training, input window, features, preprocessing.
-- **[→ Mathematical foundations](documentation/mathematical_foundations.md)** — Weights, sigma, probability, EV.
-- **[→ System architecture](documentation/system_architecture.md)**
-- **[→ Data reference](documentation/data_reference.md)** — Data files and schemas.
-- **[→ Audit report](documentation/audit_results.md)** — Risks and strengths.
-- **[→ Improvement roadmap](documentation/improvement_roadmap.md)**
-- **Secrets and key rotation:** [SECURITY.md](SECURITY.md)
+> [!IMPORTANT] **Operational runbook**
+> **[→ Open Operational runbook](documentation/operational_runbook.md)** — Autonomous operation, one-time setup, budget and live trading, idempotency, logs, generate predictions, dry-run, place orders.
+
+> [!IMPORTANT] **Docker setup**
+> **[→ Open Docker setup](documentation/docker_setup.md)** — Prepare `.env`, mount Kalshi key, run container, logs, data persistence, schedule/timezone, 13:00 local gate.
+
+> [!TIP] **Environment variables**
+> **[→ Open Environment variables](documentation/environment_variables.md)** — Full table of required and optional env vars and secrets.
+
+> [!TIP] **Dashboard**
+> **[→ Open Dashboard](documentation/dashboard.md)** — Web UI and TUI: how to run, pages, observations.
+
+> [!TIP] **Data flow**
+> **[→ Open Data flow](documentation/data_flow.md)** — End-to-end: ingestion, cleaning, prediction modes, writing predictions, provider limits, weights/consensus, Kalshi budgeting and sigma.
+
+> [!TIP] **Kalshi markets**
+> **[→ Open Kalshi markets](documentation/kalshi_markets.md)** — Series tickers, NWS resolution, contract selection, authentication, dry-run.
+
+> [!NOTE] **LSTM models**
+> **[→ Open LSTM models](documentation/lstm_models.md)** — Training, input window, features, preprocessing.
+
+> [!NOTE] **Mathematical foundations**
+> **[→ Open Mathematical foundations](documentation/mathematical_foundations.md)** — Weights, sigma, probability, EV.
+
+> [!NOTE] **System architecture**
+> **[→ Open System architecture](documentation/system_architecture.md)**
+
+> [!NOTE] **Data reference**
+> **[→ Open Data reference](documentation/data_reference.md)** — Data files and schemas.
+
+> [!NOTE] **Audit report**
+> **[→ Open Audit report](documentation/audit_results.md)** — Risks and strengths.
+
+> [!NOTE] **Improvement roadmap**
+> **[→ Open Improvement roadmap](documentation/improvement_roadmap.md)**
+
+> [!CAUTION] **Secrets and key rotation**
+> **[→ Open SECURITY.md](SECURITY.md)** — Purging history, rotating keys, deleting cache files.
 
 ---
 
@@ -45,7 +70,7 @@ pip install -r requirements.txt
 
 Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. For full forecasts: add `VISUAL_CROSSING_API_KEY` and `NWS_USER_AGENT`.
 
-**→ Full list: [Environment variables](documentation/environment_variables.md)**
+> [!TIP] **Full env list:** [Environment variables](documentation/environment_variables.md)
 
 Never commit `.env` or private keys. API keys can appear in SQLite cache files (`Data/*.sqlite`); see [SECURITY.md](SECURITY.md) if keys were exposed.
 
@@ -55,8 +80,7 @@ Never commit `.env` or private keys. API keys can appear in SQLite cache files (
 docker compose up -d --build
 ```
 
-**→ [Docker setup](documentation/docker_setup.md)** for mounting the Kalshi key, logs, and schedule.  
-**→ [Operational runbook](documentation/operational_runbook.md)** for controlling budget, live trading, and manual commands.
+> [!IMPORTANT] **Next steps:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands)
 
 ---
 
@@ -86,13 +110,15 @@ docker compose up -d --build
 | `Data/eval_history.csv` | Per-trade outcome and market state |
 | `Data/city_metadata.json` | Per-city historical MAE (used for σ) |
 
-**→ [Data reference](documentation/data_reference.md)** for schemas and key fields.
+> [!NOTE] **Schemas and key fields:** [Data reference](documentation/data_reference.md)
 
 ---
 
 ## Notes / legacy
 
-This repo originated from a BU CS542 common-task project. Historical trade logs and report screenshots remain (e.g. `Kalshi-Recent-Activity-Pranav.csv`, `CS542 Common Task Report .../`). Optimization and accuracy roadmap: **→ [Improvement roadmap](documentation/improvement_roadmap.md)** and `ForecasterLearningImprovements.md`.
+This repo originated from a BU CS542 common-task project. Historical trade logs and report screenshots remain (e.g. `Kalshi-Recent-Activity-Pranav.csv`, `CS542 Common Task Report .../`).
+
+> [!NOTE] **Optimization and accuracy:** [Improvement roadmap](documentation/improvement_roadmap.md) · `ForecasterLearningImprovements.md`
 
 ---
 
