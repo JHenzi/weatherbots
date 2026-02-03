@@ -7,6 +7,11 @@ gooony.txt
 .venv/
 pgdata/**/*
 
+# requests_cache SQLite backends store full request URLs/params (including API keys) — never commit
+*.sqlite
+.cache
+.cache.sqlite
+
 # Python
 __pycache__/
 *.pyc

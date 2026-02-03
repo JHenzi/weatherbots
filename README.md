@@ -25,6 +25,7 @@ Project docs live in `documentation/`:
 - **Data files + schemas**: `documentation/data_reference.md`
 - **Audit report (risks/strengths)**: `documentation/audit_results.md`
 - **Improvement roadmap**: `documentation/improvement_roadmap.md`
+- **Secrets, key rotation, and purging history**: [SECURITY.md](SECURITY.md)
 
 ### Cities / coordinates
 - **NYC (Central Park / Belvedere Castle)**: `40.79736,-73.97785` (`ny`)
@@ -70,7 +71,7 @@ pip install -r requirements.txt
 - Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. For full forecasts and calibration: add `VISUAL_CROSSING_API_KEY` and `NWS_USER_AGENT`; other provider keys are optional.
 
 > [!IMPORTANT]
-> `.env` and private-key files are gitignored. Never commit secrets.
+> `.env` and private-key files are gitignored. Never commit secrets. **API keys can also end up in SQLite cache files**: the app uses `requests_cache` with a SQLite backend; those DBs store full request URLs/params, so keys are stored on disk in `Data/*.sqlite` and `.cache.sqlite`. These are now in `.gitignore` — do not commit them. If keys were ever committed (in `.env`, cache `.sqlite` files, or past history), rotate/revoke all exposed keys and see [SECURITY.md](SECURITY.md) for purging history and deleting cache files.
 
 ### Environment variables
 

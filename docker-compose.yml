@@ -33,8 +33,8 @@ services:
       # Container timezone (cron schedule uses this). Change as desired.
       TZ: America/New_York
 
-      # Postgres connection (used by db.py). Override in .env for production.
-      PGDATABASE_URL: postgresql://weather:weather@postgres:5432/weather
+      # Postgres connection (used by db.py). Override in .env; do not commit real passwords.
+      PGDATABASE_URL: postgresql://${POSTGRES_USER:-weather}:${POSTGRES_PASSWORD:-weather}@postgres:5432/${POSTGRES_DB:-weather}
 
     # If you want the container timezone to match you (recommended for cron times),
     # set TZ (e.g. America/New_York). Otherwise cron runs in UTC.
@@ -48,9 +48,9 @@ services:
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_USER: weather
-      POSTGRES_PASSWORD: weather
-      POSTGRES_DB: weather
+      POSTGRES_USER: ${POSTGRES_USER:-weather}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-weather}
+      POSTGRES_DB: ${POSTGRES_DB:-weather}
       TZ: America/New_York
     volumes:
       # Bind-mount for durable database storage.
