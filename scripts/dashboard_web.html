@@ -188,8 +188,8 @@
                 const nowTemp = data.temp;
                 const pastPeak = sun && sun.past_peak;
                 const highTitle = pastPeak
-                    ? 'Daily high (final for today, from hourly obs — matches NWS timeseries)'
-                    : 'Max observed so far today (hourly obs, matches NWS timeseries)';
+                    ? 'Daily high (final for today, max of all obs — matches NWS Time Series hourly=false)'
+                    : 'Max observed so far today (all obs, matches NWS Time Series hourly=false)';
                 const trendPerHr = (data.trend_30m != null && data.trend_30m !== '') ? parseFloat(data.trend_30m) : (data.trend_1h != null ? parseFloat(data.trend_1h) : 0);
                 let projLine = '';
                 if (sun && sun.high_time && !pastPeak) {
@@ -208,7 +208,7 @@
                 } else if (pastPeak) {
                     projLine = `<div class="text-sm text-slate-500 mt-1">Now ${nowTemp.toFixed(1)}° — peak passed, high is set</div>`;
                 }
-                const nwsTimeseriesUrl = `https://www.weather.gov/wrh/timeseries?site=${data.stid}&hourly=true&units=english`;
+                const nwsTimeseriesUrl = `https://www.weather.gov/wrh/timeseries?site=${data.stid}&hours=72&units=english&chart=on&headers=on&obs=tabular&hourly=false&pview=standard&font=12&plot=`;
                 const mainLabel = pastPeak
                     ? `Daily high <span class="text-slate-300">${highToday.toFixed(1)}°</span> <span class="text-slate-500 text-base font-normal">(set)</span>`
                     : `${highToday.toFixed(1)}°F${highToday === nowTemp ? '' : ` <span class="text-slate-500 font-normal text-lg">(now ${nowTemp.toFixed(1)}°)</span>`}`;
@@ -216,7 +216,7 @@
                     <div class="card rounded-xl p-4">
                         <div class="flex justify-between items-start mb-2">
                             <span class="text-slate-400 font-medium">${cityNames[key]}</span>
-                            <a href="${nwsTimeseriesUrl}" target="_blank" rel="noopener" class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300 hover:text-amber-400" title="Compare: NWS Time Series (hourly) vs our observed high">${data.stid} ↗</a>
+                            <a href="${nwsTimeseriesUrl}" target="_blank" rel="noopener" class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300 hover:text-amber-400" title="Compare: NWS Time Series (hourly=false = actual high) vs our observed high">${data.stid} ↗</a>
                         </div>
                         <div class="text-3xl font-bold mb-1" title="${highTitle}">${mainLabel}</div>
                         ${projLine}
@@ -229,7 +229,7 @@
                             <span class="text-xs text-amber-400/90" title="Warming cycle progress">☀ ${progress}%</span>
                             <span class="text-xs text-slate-500">${status}</span>
                         </div>
-                        <div class="text-xs text-slate-500 mt-1" title="Observed high = max of hourly observations today (matches NWS timeseries). Last obs at ${obsTime}">Last obs ${obsTime}</div>
+                        <div class="text-xs text-slate-500 mt-1" title="Observed high = max of all observations today (matches NWS Time Series hourly=false). Last obs at ${obsTime}">Last obs ${obsTime}</div>
                     </div>
                 `;
             });

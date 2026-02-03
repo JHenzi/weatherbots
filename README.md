@@ -14,6 +14,9 @@ Inspired by the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka
 
 Visit these dedicated pages for full details — each link opens a dedicated doc with full content.
 
+> [!NOTE]
+> **Changelog** — **[CHANGELOG.md](CHANGELOG.md)** — Rough history of major changes (from git).
+
 > [!IMPORTANT]
 > **Operational runbook**
 > **[→ Open Operational runbook](documentation/operational_runbook.md)** — Autonomous operation, one-time setup, budget and live trading, idempotency, logs, generate predictions, dry-run, place orders.
