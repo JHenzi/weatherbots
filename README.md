@@ -100,6 +100,9 @@ pip install -r requirements.txt
 
 Example: copy `.env.example` to `.env`, then set at least `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`, and `NWS_USER_AGENT`; add `VISUAL_CROSSING_API_KEY` and other provider keys as needed.
 
+> [!NOTE]
+> A Visual Crossing API key (`MHFU2QHX7NTY5RTWZPAT7VBXS`) may appear in the repo or in examples — **it is not our key** and may be invalid or revoked. We urge all users to set their own key in `.env` and never commit secrets.
+
 ---
 
 ## Docker (autonomous scheduler)
