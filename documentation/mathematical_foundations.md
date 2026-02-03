@@ -92,49 +92,40 @@ Where $\Phi$ is the standard Normal CDF.
 
 ## 4. Confidence, Expected Value (EV) and Trade Selection
 
-### Confidence score (in-place implementation)
+### Prediction: inverse-MAE weighting (meritocratic)
 
-The system derives a **confidence score** that combines:
+When rolling MAE data is available (e.g. from `source_performance.csv` over the last 7 days):
 
-- **Spread component** (agreement between providers):
-  - Start from the snapshot spread \(\sigma_{\text{spread}}\).
-  - Map it to a raw confidence:
+- **Weights:** \(w_i = 1 / \text{MAE}_i^2\) (with a small floor on MAE to avoid division by zero). Only sources with MAE in the window participate; others are excluded from the prediction.
+- **Consensus / mean forecast:** \(\mu = \sum_i (w_i / \sum_j w_j) \cdot T_i\), i.e. the weighted average of provider forecasts using these weights.
+- If no MAE data exists for a city, the system falls back to weights from `weights.json` or equal weights.
+
+### Confidence score: smart spread (meritocratic)
+
+The system derives a **confidence score** that uses only **reliable** sources for spread, so bad sources cannot lower confidence:
+
+- **Reliable vs unreliable:** Using rolling MAE per (city, source):
+  - \(\text{best\_MAE} = \min_i \text{MAE}_i\) over sources that have both a forecast and MAE.
+  - **Reliable sources** = sources with \(\text{MAE}_i \le 1.5 \times \text{best\_MAE}\).
+  - All others are **unreliable**; their disagreement is ignored for spread.
+
+- **Spread component** (agreement among reliable providers only):
+  - \(\sigma_{\text{spread}}\) = population standard deviation of forecasts from **reliable sources only** (LSTM excluded from spread when applicable).
+  - If there are 0 or 1 reliable sources, \(\sigma_{\text{spread}} = 0\) (high agreement).
+  - Map \(\sigma_{\text{spread}}\) to raw confidence:
     - If \(\sigma_{\text{spread}} \le 1.5\): \(c_{\text{spread}} = 1.0\)
     - If \(\sigma_{\text{spread}} \ge 3.0\): \(c_{\text{spread}} = 0.0\)
-    - Otherwise:
-      \[
-      c_{\text{spread}} = \frac{3.0 - \sigma_{\text{spread}}}{3.0 - 1.5}
-      \]
-  - For trading-time guardrails, this raw value is **capped at 0.9** so pure agreement never implies literal 100% confidence.
+    - Otherwise: \(c_{\text{spread}} = (3.0 - \sigma_{\text{spread}}) / (3.0 - 1.5)\)
+  - Cap at 0.9; optionally add **+0.1** when the best source’s MAE is &lt; 0.8 × runner-up MAE (i.e. &gt;20% better), then cap again at 0.9.
 
-- **Skill component** (ensemble robustness from learned weights):
-  - Take the learned provider weights \(w_i\) for that city, normalize to probabilities:
-    \[
-    p_i = \frac{\max(w_i, 0)}{\sum_j \max(w_j, 0)}
-    \]
-  - Compute Shannon entropy:
-    \[
-    H = -\sum_i p_i \log p_i,\quad H_{\max} = \log N
-    \]
-    where \(N\) is the number of non-zero \(p_i\).
-  - Define a normalized **skill score**:
-    \[
-    c_{\text{skill}} =
-      \begin{cases}
-        0.5, & \text{if } N \le 1 \text{ or } H_{\max} \le 0 \\
-        \text{clip}\left(\dfrac{H}{H_{\max}}, 0, 1\right), & \text{otherwise}
-      \end{cases}
-    \]
+- **Skill component** (ensemble robustness from the weights used for prediction):
+  - The same weights \(w_i\) (inverse-MAE or fallback) are interpreted as a probability distribution; Shannon entropy and normalized skill score \(c_{\text{skill}}\) are computed as before (entropy / \(H_{\max}\), clipped to \([0, 1]\); default 0.5 when \(N \le 1\)).
 
 - **Final confidence score**:
-  - With both components, the in-place formula is:
-    \[
-    c_{\text{final}} = c_{\text{spread, capped}} \times \left(0.5 + 0.5 \cdot c_{\text{skill}}\right)
-    \]
-  - Intuitively:
-    - If models disagree (low \(c_{\text{spread}}\)), confidence stays low regardless of skill.
-    - If models agree but skill is poor, confidence remains materially below 1.0.
-    - Only when both agreement and ensemble skill are strong does \(c_{\text{final}}\) approach (but never reach) 1.0.
+  \[
+  c_{\text{final}} = c_{\text{spread, capped}} \times \left(0.5 + 0.5 \cdot c_{\text{skill}}\right)
+  \]
+  So: only disagreement among **reliable** sources lowers confidence; unreliable sources do not increase \(\sigma\).
 
 ### Expected Value Calculation
 
