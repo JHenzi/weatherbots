@@ -108,22 +108,32 @@ def _skill_from_weights(weights_used: dict[str, float]) -> float:
     return float(entropy_norm)
 
 
-def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.json") -> None:
+def _postprocess_voting(
+    predictions_csv: str,
+    weights_json: str = "Data/weights.json",
+    performance_csv: str | None = None,
+    mae_window_days: int = 7,
+    end_date: dt.date | None = None,
+) -> None:
     """
-    VotingModel consensus:
-    - Use per-source temps + weights.json (if present) per city.
-    - If no weights for a city, use equal weights across available sources.
-    - Compute consensus (weighted), spread (std dev), confidence_score, sources_used, weights_used.
-    - Overwrite tmax_predicted with consensus.
+    VotingModel consensus: MAE-weighted prediction and smart-spread confidence when
+    performance_csv is provided and has data; otherwise fallback to weights.json + all-sources spread.
     """
+    import statistics
+
     weights_all = _load_weights(weights_json)
+    rolling_mae: dict[str, dict[str, float]] = {}
+    if performance_csv and os.path.exists(performance_csv):
+        from prediction_mae import get_rolling_mae_per_city_source
+        rolling_mae = get_rolling_mae_per_city_source(
+            performance_csv, window_days=mae_window_days, end_date=end_date
+        )
 
     with open(predictions_csv, "r", newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
         fieldnames = list(reader.fieldnames or [])
 
-    # Ensure extra fields exist
     extra_fields = ["spread_f", "confidence_score", "sources_used", "weights_used"]
     for ef in extra_fields:
         if ef not in fieldnames:
@@ -159,66 +169,67 @@ def _postprocess_voting(predictions_csv: str, weights_json: str = "Data/weights.
         if not vals:
             continue
 
-        # Prefer confidence/spread based on *forecast providers* (exclude LSTM) when available.
+        mae_map = rolling_mae.get(city, {}) if rolling_mae else {}
+        # Inverse-MAE weights: w_i = 1 / MAE_i^2 (floor MAE at 0.01)
+        weights_used: dict[str, float] = {}
+        for src in vals:
+            mae = mae_map.get(src)
+            if mae is not None:
+                mae_safe = max(float(mae), 0.01)
+                weights_used[src] = 1.0 / (mae_safe * mae_safe)
+        if weights_used:
+            s = sum(weights_used.values())
+            weights_used = {k: v / s for k, v in weights_used.items()}
+            consensus = sum(weights_used[src] * vals[src] for src in weights_used.keys())
+        else:
+            # Fallback: weights.json or equal
+            w_city = (weights_all.get(city) or {}).get("weights") if isinstance(weights_all.get(city), dict) else None
+            w_city = w_city or (weights_all.get(city) if isinstance(weights_all.get(city), dict) else None)
+            if isinstance(w_city, dict):
+                for src in vals:
+                    if src in w_city:
+                        try:
+                            weights_used[src] = float(w_city[src])
+                        except Exception:
+                            pass
+            if not weights_used:
+                vote_sources = [s for s in vals if s != "lstm"] or list(vals)
+                u = 1.0 / len(vote_sources)
+                weights_used = {s: u for s in vote_sources}
+            else:
+                s = sum(weights_used.values())
+                weights_used = {k: v / s for k, v in weights_used.items()} if s > 0 else weights_used
+            consensus = sum(weights_used[src] * vals[src] for src in weights_used.keys())
+
+        # Smart spread: only reliable sources (MAE within 1.5x of best). Exclude LSTM from spread.
         spread_vals = {k: v for k, v in vals.items() if k != "lstm"}
         if not spread_vals:
-            spread_vals = vals
-        spread = float(__import__("statistics").pstdev(list(spread_vals.values()))) if len(spread_vals) > 1 else 0.0
-        # 1) Spread-based component (agreement between providers).
-        spread_conf_raw = _confidence_from_spread(spread)
-
-        # weights
-        w_city = (weights_all.get(city) or {}).get("weights") if isinstance(weights_all.get(city), dict) else None
-        w_city = w_city or (weights_all.get(city) if isinstance(weights_all.get(city), dict) else None)
-        weights_used: dict[str, float] = {}
-        if isinstance(w_city, dict):
-            for src in vals.keys():
-                if src in w_city:
-                    try:
-                        weights_used[src] = float(w_city[src])
-                    except Exception:
-                        pass
-        if not weights_used:
-            # default (no learned weights yet): do NOT include LSTM in the vote if we have forecasts
-            vote_sources = [s for s in vals.keys() if s != "lstm"]
-            if not vote_sources:
-                vote_sources = list(vals.keys())
-            u = 1.0 / len(vote_sources)
-            weights_used = {src: u for src in vote_sources}
-        else:
-            # renormalize across available
-            s = sum(weights_used.values())
-            if s <= 0:
-                vote_sources = [s for s in vals.keys() if s != "lstm"]
-                if not vote_sources:
-                    vote_sources = list(vals.keys())
-                u = 1.0 / len(vote_sources)
-                weights_used = {src: u for src in vote_sources}
+            spread_vals = dict(vals)
+        sources_with_mae = [s for s in spread_vals if s in mae_map]
+        if sources_with_mae:
+            best_mae = min(mae_map[s] for s in sources_with_mae)
+            reliable = [s for s in sources_with_mae if mae_map[s] <= 1.5 * best_mae]
+            if len(reliable) >= 2:
+                sigma = float(statistics.pstdev([vals[s] for s in reliable]))
             else:
-                weights_used = {k: v / s for k, v in weights_used.items()}
-
-        consensus = sum(weights_used[src] * vals[src] for src in weights_used.keys())
-
-        # 2) Skill-based component from the learned weights.
-        #    Use entropy-normalized dispersion of weights_used as a proxy for
-        #    ensemble robustness (no extra recency beyond weights.json).
+                sigma = 0.0
+            # Optional bonus: best source >20% better than runner-up
+            mae_sorted = sorted(mae_map[s] for s in sources_with_mae)
+            bonus = 0.1 if len(mae_sorted) >= 2 and mae_sorted[0] < 0.8 * mae_sorted[1] else 0.0
+        else:
+            sigma = float(statistics.pstdev(list(spread_vals.values()))) if len(spread_vals) > 1 else 0.0
+            bonus = 0.0
+        spread_conf_raw = _confidence_from_spread(sigma)
+        spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
         skill_conf = _skill_from_weights(weights_used)
-
-        # 3) Combine spread and skill into the final confidence score.
-        #    - Cap the spread-only confidence below 1.0 so we never claim
-        #      literal 100% certainty from agreement alone.
-        #    - Downscale when ensemble skill is low, up to the cap when both
-        #      spread and skill are favorable.
-        spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
         conf_final = spread_conf * (0.5 + 0.5 * skill_conf)
 
         row["tmax_predicted"] = f"{consensus}"
-        row["spread_f"] = f"{spread}"
+        row["spread_f"] = f"{sigma}"
         row["confidence_score"] = f"{conf_final}"
         row["sources_used"] = ",".join(sorted(weights_used.keys()))
         row["weights_used"] = ",".join([f"{k}:{weights_used[k]:.4f}" for k in sorted(weights_used.keys())])
 
-    # overwrite file
     with open(predictions_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
@@ -323,6 +334,8 @@ def _parse_args():
 
     p.add_argument("--predictions-latest", type=str, default="Data/predictions_latest.csv")
     p.add_argument("--predictions-history", type=str, default="Data/predictions_history.csv")
+    p.add_argument("--performance-csv", type=str, default="Data/source_performance.csv", help="Source performance for MAE-weighted consensus")
+    p.add_argument("--mae-window-days", type=int, default=7, help="Rolling window (days) for MAE")
     p.add_argument("--trades-history", type=str, default="Data/trades_history.csv")
     p.add_argument("--decisions-history", type=str, default="Data/decisions_history.csv")
     p.add_argument("--eval-history", type=str, default="Data/eval_history.csv")
@@ -374,7 +387,13 @@ if __name__ == "__main__":
         _run(pred_cmd)
 
     # 1b) Voting-model postprocess: compute weighted consensus/spread/confidence and overwrite tmax_predicted.
-    _postprocess_voting(args.predictions_latest, weights_json="Data/weights.json")
+    _postprocess_voting(
+        args.predictions_latest,
+        weights_json="Data/weights.json",
+        performance_csv=args.performance_csv,
+        mae_window_days=args.mae_window_days,
+        end_date=trade_dt - dt.timedelta(days=1),
+    )
 
     # 2) Append to predictions history with run metadata
     _append_with_metadata(

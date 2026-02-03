@@ -911,6 +911,8 @@ def _parse_args():
         action="store_true",
         help="Do not write Data/*.csv files (still performs API calls; combine with --print).",
     )
+    p.add_argument("--performance-csv", type=str, default="Data/source_performance.csv", help="Source performance for MAE-weighted consensus")
+    p.add_argument("--mae-window-days", type=int, default=7, help="Rolling window (days) for MAE")
     return p.parse_args()
 
 
@@ -924,6 +926,16 @@ if __name__ == "__main__":
     wrote = 0
     pred_rows: list[dict] = []
     intraday_rows: list[dict] = []
+
+    rolling_mae: dict[str, dict[str, float]] = {}
+    if getattr(args, "performance_csv", None) and os.path.exists(getattr(args, "performance_csv", "")):
+        from prediction_mae import get_rolling_mae_per_city_source
+        mae_end = trade_dt - dt.timedelta(days=1)
+        rolling_mae = get_rolling_mae_per_city_source(
+            args.performance_csv,
+            window_days=getattr(args, "mae_window_days", 7),
+            end_date=mae_end,
+        )
 
     # Lead 0/1: fetch and store forecasts for both today (lead 0) and tomorrow (lead 1).
     lead_dates = [
@@ -965,25 +977,26 @@ if __name__ == "__main__":
             }
             available = {k: float(v) for k, v in vals.items() if v is not None}
 
-            # Base weights: learned weights (if present) or uniform over available.
-            w_city = _weights_for_city(weights_all, city)
-            weights_used: dict[str, float] = {
-                k: float(w_city[k]) for k in available.keys() if k in w_city
-            }
-            if not weights_used:
-                if available:
-                    u = 1.0 / len(available)
-                    weights_used = {k: u for k in available.keys()}
-            else:
+            mae_map = rolling_mae.get(city, {}) if rolling_mae else {}
+            weights_used = {}
+            for src in available:
+                mae = mae_map.get(src)
+                if mae is not None:
+                    mae_safe = max(float(mae), 0.01)
+                    weights_used[src] = 1.0 / (mae_safe * mae_safe)
+            if weights_used:
                 s = sum(weights_used.values())
-                weights_used = (
-                    {k: v / s for k, v in weights_used.items()}
-                    if s > 0
-                    else ({k: 1.0 / len(available) for k in available.keys()} if available else {})
-                )
+                weights_used = {k: v / s for k, v in weights_used.items()}
+            else:
+                w_city = _weights_for_city(weights_all, city)
+                weights_used = {k: float(w_city[k]) for k in available if k in w_city}
+                if not weights_used and available:
+                    u = 1.0 / len(available)
+                    weights_used = {k: u for k in available}
+                elif weights_used:
+                    s = sum(weights_used.values())
+                    weights_used = {k: v / s for k, v in weights_used.items()} if s > 0 else {k: 1.0 / len(available) for k in available}
 
-            # Lead-time tracking: look back at recent pulses for this (city, trade_date)
-            # and apply volatility-based dynamic weighting (Consensus 2.0).
             history_rows = _load_recent_intraday_history(
                 args.out_csv,
                 city=city,
@@ -997,20 +1010,20 @@ if __name__ == "__main__":
             mean_forecast = (
                 sum(weights_used[k] * available[k] for k in weights_used.keys()) if weights_used else None
             )
-            sigma = (
-                float(statistics.pstdev(list(available.values())))
-                if len(available) > 1
-                else (0.0 if available else None)
-            )
 
-            # 1) Spread-based component (agreement between providers) from current sigma.
+            sources_with_mae = [s for s in available if s in mae_map]
+            if sources_with_mae:
+                best_mae = min(mae_map[s] for s in sources_with_mae)
+                reliable = [s for s in sources_with_mae if mae_map[s] <= 1.5 * best_mae]
+                sigma = float(statistics.pstdev([available[s] for s in reliable])) if len(reliable) >= 2 else 0.0
+                mae_sorted = sorted(mae_map[s] for s in sources_with_mae)
+                bonus = 0.1 if len(mae_sorted) >= 2 and mae_sorted[0] < 0.8 * mae_sorted[1] else 0.0
+            else:
+                sigma = float(statistics.pstdev(list(available.values()))) if len(available) > 1 else (0.0 if available else None)
+                bonus = 0.0
             spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
-
-            # 2) Skill-based component from the learned weights.
+            spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
             skill_conf = _skill_from_weights(weights_used)
-
-            # 3) Combine spread and skill into the final confidence score.
-            spread_conf = max(0.0, min(0.9, float(spread_conf_raw)))
             conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
 
             # 4) Conviction score: blend confidence with stability of recent provider skews.
