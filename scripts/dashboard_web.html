@@ -34,7 +34,7 @@
                 <span class="w-3 h-3 bg-violet-500 rounded-full mr-2"></span>
                 Next trade — predictions, confidence, sources &amp; weights
             </h2>
-            <p class="text-slate-400 text-sm mb-4">Model prediction for the next trade date per city. Each column is that source's forecast (°F). Color: cold → mild → warm. <span id="predictions-last-run" class="text-slate-500"></span></p>
+            <p class="text-slate-400 text-sm mb-4">Model prediction for the next trade date per city. Each column is that source's forecast (°F). Color: <span class="text-emerald-400">certainty (green = low MAE, usually right)</span> → <span class="text-red-400">red = high MAE, less reliable</span>. <span id="predictions-last-run" class="text-slate-500"></span></p>
             <div id="predictions-table-wrap" class="overflow-x-auto">
                 <!-- Populated by JS -->
             </div>
@@ -118,13 +118,14 @@
 
         async function updateDashboard() {
             try {
-                const [obsRes, posRes, predRes, intradayRes, sunRes, atRiskRes] = await Promise.all([
+                const [obsRes, posRes, predRes, intradayRes, sunRes, atRiskRes, maeRes] = await Promise.all([
                     fetch(API_BASE + '/observations'),
                     fetch(API_BASE + '/positions'),
                     fetch(API_BASE + '/predictions'),
                     fetch(API_BASE + '/intraday'),
                     fetch(API_BASE + '/sun'),
-                    fetch(API_BASE + '/at_risk_brackets')
+                    fetch(API_BASE + '/at_risk_brackets'),
+                    fetch(API_BASE + '/analytics/forecasts_vs_actuals').catch(function() { return { ok: false }; })
                 ]);
 
                 const obsData = await obsRes.json();
@@ -133,6 +134,10 @@
                 const intradayData = await intradayRes.json();
                 const sunData = await sunRes.json();
                 const atRiskData = await atRiskRes.json();
+                let maeData = null;
+                if (maeRes && maeRes.ok) {
+                    try { maeData = await maeRes.json(); } catch (e) { maeData = null; }
+                }
 
                 const stations = obsData.stations || {};
                 const positions = (posData.positions || posData) || [];
@@ -141,7 +146,7 @@
                 const predictionsList = Array.isArray(predData) ? predData : (predData.predictions || []);
                 const predictionsPayload = { predictions: predictionsList, last_run: predData.last_run, display_date: predData.display_date };
                 renderPositionsCombined(positions, stations, predictionsList, intradayData, sunData, posError);
-                renderPredictionsTable(predictionsPayload);
+                renderPredictionsTable(predictionsPayload, maeData);
                 renderHedges(positions, stations, predictionsList);
                 renderAtRiskBrackets(atRiskData);
                 
@@ -458,22 +463,56 @@
             return 'text-red-400';
         }
 
+        // MAE → color gradient (green = low MAE / reliable, red = high MAE / less reliable). Math-based interpolation.
+        function maeToColorStyle(mae) {
+            if (mae == null || typeof mae !== 'number' || isNaN(mae)) return '';
+            // Normalize: 0 = green, 8+ = red. Linear in between.
+            const t = Math.min(1, Math.max(0, mae / 8));
+            // HSL: green hue 140, red hue 0. Linear interpolation.
+            const hue = 140 * (1 - t);
+            const sat = 72;
+            const light = 58;
+            return 'color: hsl(' + hue + ',' + sat + '%,' + light + '%)';
+        }
+
+        function maeToTitle(mae) {
+            if (mae == null || typeof mae !== 'number' || isNaN(mae)) return 'MAE unknown';
+            return 'MAE ' + mae.toFixed(2) + '°F (lower = usually right)';
+        }
+
         const PRED_SOURCE_COLS = [
-            { key: 'tmax_open_meteo', label: 'Open-Meteo', title: 'open-meteo' },
-            { key: 'tmax_visual_crossing', label: 'VC', title: 'visual-crossing' },
-            { key: 'tmax_tomorrow', label: 'Tomorrow', title: 'tomorrow' },
-            { key: 'tmax_weatherapi', label: 'WeatherAPI', title: 'weatherapi' },
-            { key: 'tmax_google_weather', label: 'Google', title: 'google-weather' },
-            { key: 'tmax_openweathermap', label: 'OWM', title: 'openweathermap' },
-            { key: 'tmax_pirateweather', label: 'Pirate', title: 'pirateweather' },
-            { key: 'tmax_weather_gov', label: 'NWS', title: 'weather.gov' },
+            { key: 'tmax_open_meteo', label: 'Open-Meteo', title: 'open-meteo', sourceName: 'open-meteo' },
+            { key: 'tmax_visual_crossing', label: 'VC', title: 'visual-crossing', sourceName: 'visual-crossing' },
+            { key: 'tmax_tomorrow', label: 'Tomorrow', title: 'tomorrow', sourceName: 'tomorrow' },
+            { key: 'tmax_weatherapi', label: 'WeatherAPI', title: 'weatherapi', sourceName: 'weatherapi' },
+            { key: 'tmax_google_weather', label: 'Google', title: 'google-weather', sourceName: 'google-weather' },
+            { key: 'tmax_openweathermap', label: 'OWM', title: 'openweathermap', sourceName: 'openweathermap' },
+            { key: 'tmax_pirateweather', label: 'Pirate', title: 'pirateweather', sourceName: 'pirateweather' },
+            { key: 'tmax_weather_gov', label: 'NWS', title: 'weather.gov', sourceName: 'weather.gov' },
         ];
 
-        function renderPredictionsTable(predData) {
+        function renderPredictionsTable(predData, maeData) {
             const wrap = document.getElementById('predictions-table-wrap');
             const lastRunEl = document.getElementById('predictions-last-run');
             if (!wrap) return;
             let rows = Array.isArray(predData) ? predData : (predData.predictions || []);
+            var byCitySource = {};
+            var bySource = {};
+            if (maeData && maeData.by_city_source) {
+                maeData.by_city_source.forEach(function(r) {
+                    var c = (r.city || '').trim().toLowerCase();
+                    var s = (r.source_name || '').trim();
+                    if (!c || !s) return;
+                    if (!byCitySource[c]) byCitySource[c] = {};
+                    byCitySource[c][s] = r.mae;
+                });
+            }
+            if (maeData && maeData.by_source) {
+                maeData.by_source.forEach(function(r) {
+                    var s = (r.source_name || '').trim();
+                    if (s) bySource[s] = r.mae;
+                });
+            }
             const lastRunRaw = predData.last_run || null;
             const displayDate = (predData.display_date || '').trim() || null;
             if (lastRunEl) {
@@ -548,8 +587,13 @@
                     const raw = r[sc.key];
                     const val = raw != null && raw !== '' ? parseFloat(raw) : null;
                     const cellStr = val != null ? val.toFixed(1) + '°' : '—';
-                    const cellClass = predTempClass(val);
-                    html += '<td class="py-3 pr-2 font-mono text-xs text-center ' + cellClass + '" title="' + escapeHtml(sc.title) + '">' + cellStr + '</td>';
+                    const sourceName = sc.sourceName || sc.title || '';
+                    const mae = (byCitySource[city] && byCitySource[city][sourceName] != null) ? byCitySource[city][sourceName] : bySource[sourceName];
+                    const maeStyle = maeToColorStyle(mae);
+                    const maeTitle = maeToTitle(mae);
+                    const styleAttr = maeStyle ? ' style="' + maeStyle + '"' : '';
+                    const titleAttr = ' title="' + escapeHtml(sc.title) + (mae != null ? ' — ' + maeTitle : '') + '"';
+                    html += '<td class="py-3 pr-2 font-mono text-xs text-center"' + styleAttr + titleAttr + '>' + cellStr + '</td>';
                 });
                 html += '</tr>';
             });
