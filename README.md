@@ -30,6 +30,26 @@ Project docs live in `documentation/`:
 - **Austin (Bergstrom Intl)**: `30.14440,-97.66876` (`tx`)
 - **Miami**: `25.77380,-80.19360` (`fl`)
 
+### Features
+- **Prediction modes**: LSTM-only, provider-forecast-only, or blended (configurable weight). Multiple providers: Open-Meteo, Visual Crossing, Tomorrow.io, WeatherAPI, OpenWeatherMap, Pirate Weather, NWS.
+- **Calibration**: Nightly job updates per-source MAE and writes `Data/weights.json`; consensus prediction is a weighted average of provider forecasts (and optional LSTM).
+- **Intraday pulse**: Cron runs prediction snapshots (e.g. 09:00 / 15:00 / 21:00) and persists today + tomorrow so the dashboard always has the next trade date.
+- **Trading**: Orderbook-aware trade selection (EV-based), per-city sigma from spread + historical MAE, budget allocation by confidence + historical MAE/bucket hit-rate.
+- **Dashboard**: TUI (terminal) and web UI — live NWS observations, next-trade predictions, Risk/Sell advisor, at-risk brackets (BUY NO), positions, and analytics.
+- **Measurements**: Per-source and consensus MAE, bucket hit rate, realized PnL; all logged to CSVs and optionally mirrored to Postgres.
+
+### Measurements (what we track)
+| Artifact | Purpose | Key fields |
+|----------|---------|------------|
+| `Data/source_performance.csv` | Per-source prediction error vs NWS actual | `date`, `city`, `source_name`, `predicted_tmax`, `actual_tmax`, `absolute_error` |
+| `Data/daily_metrics.csv` | Rollups for allocation & scoring | `trade_date`, `city`, `metric_type` (e.g. `mae_f`, `bucket_hit_rate`), `value` |
+| `Data/eval_history.csv` | Per-trade outcome and market state | `trade_date`, `city`, `settlement_tmax_f`, `bucket_hit`, `realized_pnl_dollars`, `yes_ask`, `ev_cents` |
+| `Data/city_metadata.json` | Per-city historical MAE (used for σ) | `cities.<code>.historical_MAE` |
+
+- **MAE**: Mean absolute error (°F) of predictions vs NWS CLI actual; computed per source and for consensus over a rolling window.
+- **Bucket hit rate**: Fraction of trades where the chosen Kalshi temperature bucket contained the settled max temp.
+- **PnL**: Realized profit/loss per trade (and rolled up per day/city) after settlement.
+
 ---
 
 ## Quick start
@@ -52,7 +72,8 @@ pip install -r requirements.txt
   - `KALSHI_PRIVATE_KEY_PATH` (points to your RSA PEM file; for Docker we recommend `/run/secrets/kalshi_key.pem`)
   - `KALSHI_ENV` (`demo` or `prod`)
 
-Security note: `.env` and private-key files are gitignored.
+> [!IMPORTANT]
+> `.env` and private-key files are gitignored. Never commit secrets.
 
 ---
 
@@ -75,7 +96,8 @@ Make sure your `.env` contains (at minimum):
 Edit `docker-compose.yml` to mount your PEM key file and set:
 - `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_key.pem`
 
-Important: the scheduled cron jobs run inside the container; make sure the container’s environment and/or mounted `.env` agrees with your key path. A common failure mode is `.env` setting `KALSHI_PRIVATE_KEY_PATH` to a host-only filename (e.g. `gooony.txt`) that does not exist in the container.
+> [!WARNING]
+> Cron runs inside the container. The path in `.env` must exist **inside** the container. A common failure is `KALSHI_PRIVATE_KEY_PATH` pointing to a host-only path (e.g. `gooony.txt`) that does not exist in the container.
 
 ### 3) Run it (one command)
 From the repo root:
@@ -84,7 +106,8 @@ From the repo root:
 docker compose up -d --build
 ```
 
-Note: the container runs jobs on the schedule in `ops/docker/crontab`. If you just started it, it may not run a job until the next scheduled time.
+> [!NOTE]
+> Jobs run on the schedule in `ops/docker/crontab`. If you just started the container, the next run may not be until the next scheduled time.
 
 To trigger a one-off run immediately (manual):
 
@@ -93,6 +116,9 @@ docker exec weather-trader /bin/bash /app/scripts/run_trade.sh
 docker exec weather-trader /bin/bash /app/scripts/run_calibrate.sh
 docker exec weather-trader /bin/bash /app/scripts/run_settle.sh
 ```
+
+> [!TIP]
+> To force a safe dry-run (no orders placed), run with `WT_SEND_ORDERS=false`:
 
 To force a safe manual dry-run regardless of container defaults:
 
@@ -131,13 +157,7 @@ python /app/intraday_pulse.py --trade-date "$d" --env "${WT_ENV:-prod}" --write-
 '
 ```
 
-Problem is, this writes to disk, we can't see them unless we run the dashboard: 
-
-```bash
-./scripts/dashboard_live.sh prod 10
-```
-
-OR NOW you can print output:
+Problem is, this writes to disk, we can't see them unless we run the dashboard (see **Dashboard (how-to)** below). Or you can print output:
 
 ```bash
 docker exec -it weather-trader /bin/bash -lc '
@@ -146,7 +166,45 @@ python /app/intraday_pulse.py --trade-date "$d" --env "${WT_ENV:-prod}" --print 
 '
 ```
 
-## Weights + math (what’s actually running)
+## Dashboard (how-to)
+
+### Web dashboard (recommended)
+Single process: background NWS observation fetch + FastAPI API + HTML dashboard. Serves live station data, next-trade predictions, Risk/Sell advisor, at-risk brackets, and positions.
+
+**Run from repo root:**
+```bash
+python scripts/web_dashboard_api.py
+```
+Then open **http://localhost:8080/** in a browser.
+
+**Pages:**
+- **/** — Main dashboard: city cards (current temp, observed high today, projected high, trend °/hr, sun progress), next-trade predictions table (consensus, sources, spread, confidence), Risk/Sell advisor (hedge signals + desktop notifications), at-risk brackets (BUY NO suggestions), and open positions with P/L.
+- **/markets** — Kalshi markets feed: upcoming high-temp markets with filters and links to Kalshi.
+- **/analytics** — Forecasts vs actuals (MAE per source and per city/source), observation projected_high vs actual (MAE by city), and "when to lock in" (by hour and trend bucket). Data from `source_performance.csv` and `observations_history.csv`.
+
+> [!NOTE]
+> Observations are fetched from **api.weather.gov** every 2 minutes. The dashboard uses the **latest** observation per station; the [NWS Time Series Viewer](https://www.weather.gov/wrh/timeseries) (hourly mode) can show slightly different values because it uses only hourly observations (e.g. :51–:59). Both are from the same station.
+
+Observations are written to `Data/observations_latest.json` and `Data/observations_history.csv`.
+
+**Optional (Docker):** Expose port 8080 in `docker-compose.yml` and run the dashboard inside a sidecar or on the host pointing at the same `Data/` directory so it can read predictions and trades.
+
+### TUI (terminal dashboard)
+Ncurses-style status view: file row counts (predictions, trades, decisions, eval, intraday), latest predictions table, forecast comparison (all sources), recent trades, next cron runs.
+
+```bash
+./scripts/dashboard_live.sh [env] [interval_sec] [limit] [city]
+```
+- **env**: `prod` (default) or `demo` — filters trades by environment.
+- **interval_sec**: Refresh interval in seconds (default `5`).
+- **limit**: Number of recent rows to show (default `10`).
+- **city**: Optional — focus forecast comparison on one city (`ny` / `il` / `tx` / `fl`). Omit to show all cities.
+
+Example: `./scripts/dashboard_live.sh prod 5 10` — refresh every 5 s, show 10 rows, all cities. Press **q** to quit.
+
+---
+
+## Weights + math (what's actually running)
 
 ### A) Learned provider weights (`Data/weights.json`)
 Updated by the nightly calibration job (`scripts/run_calibrate.sh` → `calibrate_sources.py`) once NWS CLI “truth” is available.
@@ -267,6 +325,10 @@ Current per-city schema includes:
 Recommended: use a fresh output per run/mode, e.g. `--predictions-csv Data/predictions_latest.csv`.
 
 ### Provider rate limits (important)
+
+> [!WARNING]
+> Free-tier APIs have strict limits. Tomorrow.io: 3 req/sec, 25 req/hour, 500 req/day. Avoid re-running forecast mode in a tight loop.
+
 - **Tomorrow.io (free tier)**: 3 req/sec, 25 req/hour, 500 req/day.
   - `daily_prediction.py` uses a **1-hour on-disk cache** (`Data/tomorrow_cache`) and a simple throttle to help stay within free-tier limits.
   - Operationally: avoid repeatedly re-running forecast mode in a tight loop.
@@ -279,6 +341,10 @@ Recommended: use a fresh output per run/mode, e.g. `--predictions-csv Data/predi
 Trading logic is in `kalshi_trader.py`.
 
 ### Budgeting + allocation (important)
+
+> [!IMPORTANT]
+> Each trade run enforces **two layers of safety**: a configured daily cap (`WT_DAILY_BUDGET`) and a balance-based cap (never more than half of available cash per run). Budget is then allocated across cities by confidence and historical MAE/bucket hit-rate.
+
 Each trade run enforces **two layers of safety**:
 
 - **Configured cap**: `WT_DAILY_BUDGET` (passed as `--max-dollars-total`) is the *absolute* max the bot is allowed to spend in a day.
@@ -358,7 +424,9 @@ Kalshi Trade API v2 requests are signed with:
 - `KALSHI-ACCESS-SIGNATURE` = RSA-PSS signature of `timestamp + HTTP_METHOD + PATH_WITHOUT_QUERY`
 
 **Dry-run first**
-By default the trader does **not** place orders; it prints what it *would* submit. It will only place orders if you pass `--send-orders`.
+
+> [!CAUTION]
+> By default the trader does **not** place orders; it prints what it *would* submit. It will only place orders if you pass `--send-orders`. Test with `--env demo` and dry-run before enabling live trading.
 
 ---
 
@@ -401,7 +469,9 @@ The scheduler wrapper scripts in `scripts/` support environment variables:
 - **`WT_SEND_ORDERS`**: `true` to actually place orders (default: **dry-run**)
 
 #### Idempotency (one live trade per city per date)
-When live trading is enabled (`WT_SEND_ORDERS=true` / `--send-orders`), `kalshi_trader.py` enforces **one live trade per city per trade date** by checking `Data/trades_history.csv` for an existing row with `send_orders=true` for that `(env, trade_date, city)`. If found, it logs a skip with reason `already_traded` and does not submit another order.
+
+> [!IMPORTANT]
+> When live trading is enabled, the bot enforces **one live trade per city per trade date**. It checks `Data/trades_history.csv` for an existing row with `send_orders=true` for that `(env, trade_date, city)`; if found, it skips with reason `already_traded` and does not submit another order.
 
 To enable live trading, set in `docker-compose.yml`:
 - `WT_ENV=prod`
@@ -468,6 +538,9 @@ Key knobs (conservative defaults):
 - `--sigma-floor` (default 2.0) and `--sigma-mult` (default 1.0)
 
 ### Place orders (demo first)
+
+> [!TIP]
+> Run with `--env demo` first. Once satisfied, use `--env prod` and `--send-orders` for live trading.
 
 ```bash
 python kalshi_trader.py --env demo --trade-date 2026-01-23 --send-orders
