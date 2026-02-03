@@ -1,5 +1,5 @@
 {
-  "last_update": "2026-02-03T17:46:13.519736+00:00",
+  "last_update": "2026-02-03T17:48:14.343651+00:00",
   "stations": {
     "ny": {
       "city": "ny",
@@ -7,7 +7,7 @@
       "timestamp": "2026-02-03T16:51:00+00:00",
       "temp": 28.94,
       "observed_high_today": 28.94,
-      "projected_high": 30.94,
+      "projected_high": 30.89,
       "trend_10m": 0.0,
       "trend_30m": 1.98,
       "trend_1h": 1.44,
@@ -20,7 +20,7 @@
       "timestamp": "2026-02-03T17:30:00+00:00",
       "temp": 26.6,
       "observed_high_today": 26.6,
-      "projected_high": 31.17,
+      "projected_high": 31.1,
       "trend_10m": -0.0,
       "trend_30m": 1.3149,
       "trend_1h": 1.9775,
@@ -33,7 +33,7 @@
       "timestamp": "2026-02-03T17:30:00+00:00",
       "temp": 66.2,
       "observed_high_today": 66.2,
-      "projected_high": 68.58,
+      "projected_high": 68.55,
       "trend_10m": -0.0,
       "trend_30m": 2.4394,
       "trend_1h": 0.8014,
@@ -46,7 +46,7 @@
       "timestamp": "2026-02-03T17:35:00+00:00",
       "temp": 66.2,
       "observed_high_today": 66.2,
-      "projected_high": 72.42,
+      "projected_high": 72.31,
       "trend_10m": -0.0,
       "trend_30m": 2.5911,
       "trend_1h": 3.4473,
