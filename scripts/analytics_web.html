@@ -7,6 +7,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script>
+      // Recharts expects React.PropTypes (removed in React 18). Polyfill for UMD build.
+      if (window.PropTypes && window.React) window.React.PropTypes = window.PropTypes;
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; }
