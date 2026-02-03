@@ -1,5 +1,5 @@
 {
-  "last_update": "2026-02-03T17:42:06.072614+00:00",
+  "last_update": "2026-02-03T17:46:13.519736+00:00",
   "stations": {
     "ny": {
       "city": "ny",
@@ -7,7 +7,7 @@
       "timestamp": "2026-02-03T16:51:00+00:00",
       "temp": 28.94,
       "observed_high_today": 28.94,
-      "projected_high": 31.04,
+      "projected_high": 30.94,
       "trend_10m": 0.0,
       "trend_30m": 1.98,
       "trend_1h": 1.44,
@@ -17,40 +17,40 @@
     "il": {
       "city": "il",
       "stid": "KMDW",
-      "timestamp": "2026-02-03T17:20:00+00:00",
+      "timestamp": "2026-02-03T17:30:00+00:00",
       "temp": 26.6,
       "observed_high_today": 26.6,
-      "projected_high": 32.54,
+      "projected_high": 31.17,
       "trend_10m": -0.0,
-      "trend_30m": 2.1329,
-      "trend_1h": 2.4976,
-      "acceleration": -2.1329,
+      "trend_30m": 1.3149,
+      "trend_1h": 1.9775,
+      "acceleration": -1.3149,
       "time_temp_will_max": "2026-02-03T14:04:50-06:00"
     },
     "tx": {
       "city": "tx",
       "stid": "KAUS",
-      "timestamp": "2026-02-03T17:20:00+00:00",
+      "timestamp": "2026-02-03T17:30:00+00:00",
       "temp": 66.2,
       "observed_high_today": 66.2,
-      "projected_high": 67.76,
-      "trend_10m": 6.48,
-      "trend_30m": 1.7485,
-      "trend_1h": 0.5137,
-      "acceleration": 4.7315,
+      "projected_high": 68.58,
+      "trend_10m": -0.0,
+      "trend_30m": 2.4394,
+      "trend_1h": 0.8014,
+      "acceleration": -2.4394,
       "time_temp_will_max": "2026-02-03T14:44:26-06:00"
     },
     "fl": {
       "city": "fl",
       "stid": "KMIA",
-      "timestamp": "2026-02-03T17:25:00+00:00",
+      "timestamp": "2026-02-03T17:35:00+00:00",
       "temp": 66.2,
       "observed_high_today": 66.2,
-      "projected_high": 73.09,
-      "trend_10m": 4.32,
-      "trend_30m": 3.4545,
-      "trend_1h": 3.6759,
-      "acceleration": 0.8655,
+      "projected_high": 72.42,
+      "trend_10m": -0.0,
+      "trend_30m": 2.5911,
+      "trend_1h": 3.4473,
+      "acceleration": -2.5911,
       "time_temp_will_max": "2026-02-03T14:34:32-05:00"
     }
   }
