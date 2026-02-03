@@ -352,3 +352,19 @@ SKIP: effective_confidence=0.610 < 0.75 (confidence=0.610 conviction=?)
 
 ----------- KXHIGHMIA / city=fl / trade_date=2026-02-02 -----------
 SKIP: effective_confidence=0.674 < 0.75 (confidence=0.674 conviction=?)
+[trade] 2026-02-03T07:00:01-05:00 trade_date=2026-02-03 (07:00 fetch + trade)
+[intraday_pulse.py] done start=2026-02-03T07:00:01.573881-05:00 trade_date=2026-02-03 cities_written=8 out=Data/intraday_forecasts.csv predictions_latest=Data/predictions_latest.csv
+Balance: available_cash=$40.53 → per-run cap=$20.27 (min(configured=$50.00, 0.50*balance))
+City budget caps: ny=$5.07, il=$5.07, tx=$5.07, fl=$5.07 (window_days=14)
+
+----------- KXHIGHNY / city=ny / trade_date=2026-02-03 -----------
+Skipping ny: Current time is 7:00, waiting for 13:00.
+
+----------- KXHIGHCHI / city=il / trade_date=2026-02-03 -----------
+Skipping il: Current time is 6:00, waiting for 13:00.
+
+----------- KXHIGHAUS / city=tx / trade_date=2026-02-03 -----------
+Skipping tx: Current time is 6:00, waiting for 13:00.
+
+----------- KXHIGHMIA / city=fl / trade_date=2026-02-03 -----------
+Skipping fl: Current time is 7:00, waiting for 13:00.
