@@ -142,7 +142,20 @@ Or enable “run once on startup” by adding these to `docker-compose.yml` envi
   - `Data/weights_history.csv` (weight drift over time)
   - `Data/daily_metrics.csv` (MAE/RMSE + bucket hit-rate + daily PnL)
 
-### 5) Schedule / timezone
+### 5) Data persistence and risk of data loss
+
+The system uses **both** CSV files under `Data/` and, when configured, **Postgres**. There is a plan to move to a Postgres-first architecture (see `ToDo.md` and `.cursor/plans/postgres_final_transition_plan_b52d4406.plan.md`), but it is **not yet complete**: many code paths still write to and read from CSV by default; the dashboard and several scripts read directly from CSV. Postgres is an optional mirror when `ENABLE_PG_WRITE` is set, and an optional read source (with CSV fallback) when `ENABLE_PG_READ` is set.
+
+> [!CAUTION]
+> **Real risk of data loss**
+>
+> - **Container filesystem**: If `./Data` is **not** mounted into the container, all state written inside the container (CSVs, models, weights, logs, caches) is **ephemeral**. It is lost when the container is recreated, removed, or replaced. **Always mount `./Data`** (or an equivalent host directory) when running in Docker so that `Data/` persists on the host.
+> - **CSV is still primary**: Scripts write to CSV first; Postgres is a mirror when `ENABLE_PG_WRITE` is set. If Postgres writes fail (or the env var is unset), only CSV has the data. If you lose the `Data/` directory (e.g. bad mount, host disk failure, accidental delete), you lose history, weights, and calibration data even if Postgres is attached — because not all writers guarantee Postgres is in sync, and the dashboard / many readers use CSV.
+> - **Dual-write inconsistency**: When both CSV and Postgres are used, they can get out of sync if one write fails; there is no single source of truth yet. Rely on CSV for operational truth until the Postgres transition is finished and documented.
+
+**Recommendations:** (1) Always mount `./Data` in Docker. (2) Back up the host directory that holds `Data/` (and/or run `scripts/migrate_csv_to_pg.py` to backfill Postgres). (3) If you use Postgres, set `ENABLE_PG_WRITE` and ensure the DB is durable and backed up. (4) Treat Postgres as a secondary/backup until the codebase fully transitions to Postgres-first and this README is updated.
+
+### 6) Schedule / timezone
 Cron times are defined in `ops/docker/crontab` (defaults: intraday pulses at 09:00/15:00/21:00, trade at 22:00, calibrate at 02:15, settle/metrics at 03:15).
 If you want cron to run in your local timezone, set `TZ` in `docker-compose.yml` (e.g. `America/New_York`).
 
