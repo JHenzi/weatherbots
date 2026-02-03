@@ -14,43 +14,43 @@ Inspired by the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka
 
 Visit these dedicated pages for full details — each link opens a dedicated doc with full content.
 
-> [!IMPORTANT] **Operational runbook**
+> [!important] **Operational runbook**
 > **[→ Open Operational runbook](documentation/operational_runbook.md)** — Autonomous operation, one-time setup, budget and live trading, idempotency, logs, generate predictions, dry-run, place orders.
 
-> [!IMPORTANT] **Docker setup**
+> [!important] **Docker setup**
 > **[→ Open Docker setup](documentation/docker_setup.md)** — Prepare `.env`, mount Kalshi key, run container, logs, data persistence, schedule/timezone, 13:00 local gate.
 
-> [!TIP] **Environment variables**
+> [!tip] **Environment variables**
 > **[→ Open Environment variables](documentation/environment_variables.md)** — Full table of required and optional env vars and secrets.
 
-> [!TIP] **Dashboard**
+> [!tip] **Dashboard**
 > **[→ Open Dashboard](documentation/dashboard.md)** — Web UI and TUI: how to run, pages, observations.
 
-> [!TIP] **Data flow**
+> [!tip] **Data flow**
 > **[→ Open Data flow](documentation/data_flow.md)** — End-to-end: ingestion, cleaning, prediction modes, writing predictions, provider limits, weights/consensus, Kalshi budgeting and sigma.
 
-> [!TIP] **Kalshi markets**
+> [!tip] **Kalshi markets**
 > **[→ Open Kalshi markets](documentation/kalshi_markets.md)** — Series tickers, NWS resolution, contract selection, authentication, dry-run.
 
-> [!NOTE] **LSTM models**
+> [!note] **LSTM models**
 > **[→ Open LSTM models](documentation/lstm_models.md)** — Training, input window, features, preprocessing.
 
-> [!NOTE] **Mathematical foundations**
+> [!note] **Mathematical foundations**
 > **[→ Open Mathematical foundations](documentation/mathematical_foundations.md)** — Weights, sigma, probability, EV.
 
-> [!NOTE] **System architecture**
+> [!note] **System architecture**
 > **[→ Open System architecture](documentation/system_architecture.md)**
 
-> [!NOTE] **Data reference**
+> [!note] **Data reference**
 > **[→ Open Data reference](documentation/data_reference.md)** — Data files and schemas.
 
-> [!NOTE] **Audit report**
+> [!note] **Audit report**
 > **[→ Open Audit report](documentation/audit_results.md)** — Risks and strengths.
 
-> [!NOTE] **Improvement roadmap**
+> [!note] **Improvement roadmap**
 > **[→ Open Improvement roadmap](documentation/improvement_roadmap.md)**
 
-> [!CAUTION] **Secrets and key rotation**
+> [!caution] **Secrets and key rotation**
 > **[→ Open SECURITY.md](SECURITY.md)** — Purging history, rotating keys, deleting cache files.
 
 ---
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 
 Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. For full forecasts: add `VISUAL_CROSSING_API_KEY` and `NWS_USER_AGENT`.
 
-> [!TIP] **Full env list:** [Environment variables](documentation/environment_variables.md)
+> [!tip] **Full env list:** [Environment variables](documentation/environment_variables.md)
 
 Never commit `.env` or private keys. API keys can appear in SQLite cache files (`Data/*.sqlite`); see [SECURITY.md](SECURITY.md) if keys were exposed.
 
@@ -80,7 +80,7 @@ Never commit `.env` or private keys. API keys can appear in SQLite cache files (
 docker compose up -d --build
 ```
 
-> [!IMPORTANT] **Next steps:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands)
+> [!important] **Next steps:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands)
 
 ---
 
@@ -110,7 +110,7 @@ docker compose up -d --build
 | `Data/eval_history.csv` | Per-trade outcome and market state |
 | `Data/city_metadata.json` | Per-city historical MAE (used for σ) |
 
-> [!NOTE] **Schemas and key fields:** [Data reference](documentation/data_reference.md)
+> [!note] **Schemas and key fields:** [Data reference](documentation/data_reference.md)
 
 ---
 
@@ -118,7 +118,7 @@ docker compose up -d --build
 
 This repo originated from a BU CS542 common-task project. Historical trade logs and report screenshots remain (e.g. `Kalshi-Recent-Activity-Pranav.csv`, `CS542 Common Task Report .../`).
 
-> [!NOTE] **Optimization and accuracy:** [Improvement roadmap](documentation/improvement_roadmap.md) · `ForecasterLearningImprovements.md`
+> [!note] **Optimization and accuracy:** [Improvement roadmap](documentation/improvement_roadmap.md) · `ForecasterLearningImprovements.md`
 
 ---
 
