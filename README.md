@@ -182,6 +182,10 @@ Then open **http://localhost:8080/** in a browser.
 - **/markets** — Kalshi markets feed: upcoming high-temp markets with filters and links to Kalshi.
 - **/analytics** — Forecasts vs actuals (MAE per source and per city/source), observation projected_high vs actual (MAE by city), and "when to lock in" (by hour and trend bucket). Data from `source_performance.csv` and `observations_history.csv`.
 
+**Forecasts vs actuals (example)** — The analytics page shows Mean Absolute Error (°F) for each source and for the consensus, so you can see which providers (and the LSTM) perform best vs NWS actuals. A bar chart compares MAE by source; a filterable table breaks it down by city and source, with color coding by accuracy (green = lower MAE, coral/red = higher).
+
+![Forecasts vs actuals — MAE by source (bar chart) and by city & source (table, color by accuracy).](ForecastsVsActualsChart.png)
+
 > [!NOTE]
 > Observations are fetched from **api.weather.gov** every 2 minutes. The dashboard uses the **latest** observation per station; the [NWS Time Series Viewer](https://www.weather.gov/wrh/timeseries) (hourly mode) can show slightly different values because it uses only hourly observations (e.g. :51–:59). Both are from the same station.
 
