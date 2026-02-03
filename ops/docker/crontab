@@ -11,9 +11,13 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 0 * * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
 30 0-16 * * * cd /app && /bin/bash /app/scripts/run_intraday_pulse.sh 2>&1 | tee -a /app/Data/logs/intraday_pulse.cron.log
 
-# Daily trade run for **today's** markets at 07:00am local container time (America/New_York)
-# (This run performs an early-morning forecast fetch + trades if gates pass.)
+# Daily trade run for **today's** markets. Container TZ = America/New_York.
+# - 07:00 ET: early-morning forecast refresh; kalshi_trader 13:00 gate skips all (use --skip-13h-gate for one-shot trade-all).
+# - 13:00 ET: run_trade runs intraday_pulse (fresh forecasts) then kalshi_trader; ny/fl are 13:00 local → trade.
+# - 14:00 ET: run_trade runs intraday_pulse (fresh forecasts) then kalshi_trader; il/tx are 13:00 CT → trade.
 00 7 * * * cd /app && /bin/bash /app/scripts/run_trade.sh 2>&1 | tee -a /app/Data/logs/trade.cron.log
+0 13 * * * cd /app && /bin/bash /app/scripts/run_trade.sh 2>&1 | tee -a /app/Data/logs/trade.cron.log
+0 14 * * * cd /app && /bin/bash /app/scripts/run_trade.sh 2>&1 | tee -a /app/Data/logs/trade.cron.log
 
 # Nightly calibration for yesterday (default 2:15am local container time)
 15 2 * * * cd /app && /bin/bash /app/scripts/run_calibrate.sh 2>&1 | tee -a /app/Data/logs/calibrate.cron.log

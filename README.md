@@ -181,6 +181,10 @@ The system uses **both** CSV files under `Data/` and, when configured, **Postgre
 Cron times are defined in `ops/docker/crontab` (defaults: intraday pulses at 09:00/15:00/21:00, trade at 22:00, calibrate at 02:15, settle/metrics at 03:15).
 If you want cron to run in your local timezone, set `TZ` in `docker-compose.yml` (e.g. `America/New_York`).
 
+**Hourly trading (13:00 local gate):** If you run `kalshi_trader.py` on an hourly cron, it will only execute the trade for a city when it is **13:00 (1 PM)** in that city's local time (ny/fl: America/New_York, il/tx: America/Chicago). Do not pass `--skip-13h-gate` for this use. For a single run that trades all cities regardless of time (e.g. morning one-shot), pass `--skip-13h-gate`.
+
+**Audit: trade at 1 PM local, after forecasts.** With container TZ = America/New_York, the crontab runs `run_trade.sh` at **13:00 ET** and **14:00 ET**. Each run does (1) `intraday_pulse.py --write-predictions` (writes `predictions_latest.csv`), then (2) `kalshi_trader.py` (no `--skip-13h-gate`). At **13:00 ET** it is 13:00 in ny/fl and 12:00 in il/tx → only ny and fl pass the gate and trade (with forecasts just written). At **14:00 ET** it is 14:00 in ny/fl and 13:00 in il/tx → only il and tx pass the gate and trade (with forecasts just written). So each city trades at 1 PM local, after its run has refreshed predictions.
+
 ---
 
 ## To Get Predictions
