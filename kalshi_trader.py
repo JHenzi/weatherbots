@@ -8,6 +8,7 @@ import re
 import uuid
 import json
 import statistics
+from zoneinfo import ZoneInfo
 
 import requests
 from cryptography.hazmat.backends import default_backend
@@ -107,6 +108,14 @@ SERIES_TICKERS = {
     "fl": os.getenv("KALSHI_SERIES_FL", "KXHIGHMIA"),
 }
 CITY_ORDER = ["ny", "il", "tx", "fl"]
+
+# Per-city timezone for 13:00 local-time gate (hourly cron).
+CITY_CONFIG = {
+    "ny": "America/New_York",
+    "fl": "America/New_York",
+    "il": "America/Chicago",
+    "tx": "America/Chicago",
+}
 
 
 def get_event(client: KalshiHttpClient, event_ticker: str) -> dict:
@@ -991,8 +1000,8 @@ def _parse_args():
     p.add_argument(
         "--env",
         type=str,
-        default=os.getenv("KALSHI_ENV", "demo"),
-        help="Kalshi env: demo or prod (default from KALSHI_ENV, else demo)",
+        default=os.getenv("KALSHI_ENV") or os.getenv("WT_ENV") or "demo",
+        help="Kalshi env: demo or prod (default: KALSHI_ENV or WT_ENV or demo)",
     )
     p.add_argument(
         "--base-url",
@@ -1119,6 +1128,11 @@ def _parse_args():
         default=0.05,
         help="Minimum fraction of per-run cap reserved per city (prevents zero budgets).",
     )
+    p.add_argument(
+        "--skip-13h-gate",
+        action="store_true",
+        help="Skip the 13:00 local-time gate; consider all cities regardless of local hour (for one-shot runs that trade all cities).",
+    )
     return p.parse_args()
 
 
@@ -1170,7 +1184,15 @@ if __name__ == "__main__":
         if cash_cents is not None:
             available_cash_dollars = float(cash_cents) / 100.0
     except Exception as e:
-        print(f"WARNING: could not fetch Kalshi balance; using configured caps only ({e})")
+        err_str = str(e)
+        if "401" in err_str and ("authentication_error" in err_str or "NOT_FOUND" in err_str):
+            print(
+                "WARNING: Kalshi balance returned 401 (auth/not found). "
+                "Demo and production use separate API keys; if you use production keys, run with --env prod "
+                "(or set KALSHI_ENV=prod / WT_ENV=prod). Using configured caps only."
+            )
+        else:
+            print(f"WARNING: could not fetch Kalshi balance; using configured caps only ({e})")
 
     configured_total_cap = float(args.max_dollars_total)
     balance_cap = None
@@ -1283,6 +1305,16 @@ if __name__ == "__main__":
         series = SERIES_TICKERS[city]
         event_ticker = f"{series}-{event_suffix}"
         print(f"\n----------- {series} / city={city} / trade_date={trade_dt_str} -----------")
+
+        # 13:00 local-time gate: when run hourly, only execute for a city when it's 1 PM there.
+        if not args.skip_13h_gate:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            tz = ZoneInfo(CITY_CONFIG[city])
+            local_time = now_utc.astimezone(tz)
+            if local_time.hour != 13:
+                print(f"Skipping {city}: Current time is {local_time.hour}:00, waiting for 13:00.")
+                continue
+            print(f"Executing trade for {city} at {local_time}.")
 
         # Idempotency: one live trade per city per date.
         already_live = _already_traded(
