@@ -2,6 +2,8 @@
 
 This repo predicts **daily maximum temperature** for 4 locations and maps the prediction into Kalshi “high temperature” markets for automated (or dry-run) trading.
 
+![Next trade — predictions, confidence, sources & weights. Per-city consensus (Pred), confidence (Conf), spread, and forecasts from Open-Meteo, Visual Crossing, Tomorrow, WeatherAPI, Google, OpenWeatherMap, Pirate Weather, NWS — color-coded by source reliability (green = lower MAE, red = higher MAE).](Forecasts.png)
+
 ### Inspiration and origin
 
 This project is **inspired by and builds on** the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo (Kalshi Weather Prediction Common Task for BU's CS542 Spring 2024). It reuses and extends the same core ideas:
