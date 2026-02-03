@@ -41,7 +41,7 @@ def get_rolling_mae_per_city_source(
             ]
             for city in cities:
                 for source in sources:
-                    errs = db.get_source_performance_window(city, source, start, end)
+                    errs = db.get_source_performance_window(city, source, start, end_date)
                     if errs:
                         out[city][source] = sum(errs) / len(errs)
             return dict(out)
@@ -65,7 +65,7 @@ def get_rolling_mae_per_city_source(
                 d = dt.datetime.strptime(d_str, "%Y-%m-%d").date()
             except ValueError:
                 continue
-            if d < start or d > end:
+            if d < start or d > end_date:
                 continue
             try:
                 err = float(row.get("absolute_error") or 0)
