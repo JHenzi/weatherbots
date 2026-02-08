@@ -13,7 +13,7 @@ echo "weather-trader container started: $(date -Is)" | tee -a /app/Data/logs/con
 declare -p | grep -E ' (WT_|KALSHI_|TZ|API_KEY|GOOGLE|TOMORROW|WEATHERAPI|OPENWEATHERMAP|PIRATE|NWS)' > /app/container.env
 
 touch /app/Data/logs/trade.cron.log /app/Data/logs/calibrate.cron.log
-touch /app/Data/logs/intraday_pulse.cron.log
+touch /app/Data/logs/intraday_pulse.cron.log /app/Data/logs/dashboard.cron.log
 
 # Optional: run once on startup (disabled by default).
 WT_RUN_TRADE_ON_START="${WT_RUN_TRADE_ON_START:-false}"
@@ -35,6 +35,13 @@ fi
 if _bool "$WT_RUN_CALIBRATE_ON_START"; then
   echo "Running calibrate job once on startup..." | tee -a /app/Data/logs/container.log
   /bin/bash -c ". /app/container.env && /app/scripts/run_calibrate.sh" >> /app/Data/logs/calibrate.cron.log 2>&1 || true
+fi
+
+# Web dashboard (default on). Set WT_RUN_DASHBOARD_ON_START=false to disable.
+WT_RUN_DASHBOARD_ON_START="${WT_RUN_DASHBOARD_ON_START:-true}"
+if _bool "$WT_RUN_DASHBOARD_ON_START"; then
+  echo "Starting web dashboard on port 8080..." | tee -a /app/Data/logs/container.log
+  . /app/container.env && python /app/scripts/web_dashboard_api.py >> /app/Data/logs/dashboard.cron.log 2>&1 &
 fi
 
 # Install the crontab for this container, but first ensure it sources the container env

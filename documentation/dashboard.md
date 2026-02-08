@@ -30,7 +30,7 @@ Observations are written to `Data/observations_latest.json` and `Data/observatio
 
 ### Docker
 
-Expose port 8080 in `docker-compose.yml` and run the dashboard inside a sidecar or on the host pointing at the same `Data/` directory so it can read predictions and trades.
+With the default Docker setup, the dashboard **runs inside the container**. After `docker compose up -d`, open **http://localhost:8080** (or your host’s IP if you’re connecting remotely). No need to start the web service on the host. To disable the in-container dashboard, set `WT_RUN_DASHBOARD_ON_START=false` in the weather-trader service environment.
 
 ---
 

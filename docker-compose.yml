@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    ports:
+      - "8080:8080"
 
     # Persist logs, caches, models, and histories
     volumes:
