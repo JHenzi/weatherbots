@@ -1,16 +1,12 @@
 # Dashboard (how-to)
 
-## Web dashboard (recommended)
+## Web dashboard
 
 Single process: background NWS observation fetch + FastAPI API + HTML dashboard. Serves live station data, next-trade predictions, Risk/Sell advisor, at-risk brackets, and positions.
 
-**Run from repo root:**
+**Use Docker (recommended):** The dashboard runs inside the container. After `docker compose up -d`, open **http://localhost:8080** (or your host’s IP if remote). No extra steps. To disable it, set `WT_RUN_DASHBOARD_ON_START=false` in the weather-trader service.
 
-```bash
-python scripts/web_dashboard_api.py
-```
-
-Then open **http://localhost:8080/** in a browser.
+**Without Docker:** From repo root run `python scripts/web_dashboard_api.py`, then open http://localhost:8080.
 
 ### Pages
 
@@ -27,10 +23,6 @@ The analytics page shows Mean Absolute Error (°F) for each source and for the c
 Observations are fetched from **api.weather.gov** every 2 minutes. The dashboard uses the **latest** observation per station. The [NWS Time Series Viewer](https://www.weather.gov/wrh/timeseries) (hourly mode) can show slightly different values because it uses only hourly observations. Both are from the same station.
 
 Observations are written to `Data/observations_latest.json` and `Data/observations_history.csv`.
-
-### Docker
-
-With the default Docker setup, the dashboard **runs inside the container**. After `docker compose up -d`, open **http://localhost:8080** (or your host’s IP if you’re connecting remotely). No need to start the web service on the host. To disable the in-container dashboard, set `WT_RUN_DASHBOARD_ON_START=false` in the weather-trader service environment.
 
 ---
 

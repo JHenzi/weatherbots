@@ -73,32 +73,21 @@ Visit these dedicated pages for full details — each link opens a dedicated doc
 
 ## Quick start
 
-### Install
+Use Docker. From the repo root:
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-```
-
-### Configure secrets
-
-Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. For full forecasts: add `VISUAL_CROSSING_API_KEY` and `NWS_USER_AGENT`.
-
-> [!TIP]
-> **Full env list:** [Environment variables](documentation/environment_variables.md)
-
-Never commit `.env` or private keys. API keys can appear in SQLite cache files (`Data/*.sqlite`); see [SECURITY.md](SECURITY.md) if keys were exposed.
-
-### Run with Docker (recommended)
-
-```bash
-docker compose up -d --build
-```
+1. **Secrets:** Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. Mount your Kalshi private key (see [Docker setup](documentation/docker_setup.md)).
+2. **Run:**
+   ```bash
+   docker compose up -d --build
+   ```
+3. **Dashboard:** Open **http://localhost:8080** for the web UI (cron, trades, and dashboard all run in the container).
 
 > [!IMPORTANT]
-> **Next steps:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands)
+> **Next:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands) · [Environment variables](documentation/environment_variables.md)
+
+Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if keys were exposed.
+
+**Without Docker:** Install deps with `pip install -r requirements.txt` (e.g. in a venv), configure `.env`, then run scripts manually (e.g. `python scripts/web_dashboard_api.py` for the dashboard). Cron and scheduling are up to you.
 
 ---
 
