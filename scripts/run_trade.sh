@@ -35,6 +35,7 @@ echo "[trade] $(date -Is) trade_date=${TRADE_DATE} (07:00 fetch + trade)"
 python intraday_pulse.py \
   --trade-date "$TRADE_DATE" \
   --env "$WT_ENV" \
+  --decision-role trade \
   --write-predictions
 
 # Execute trades from the latest intraday-based predictions (kalshi_trader enforces additional gates).
@@ -61,4 +62,3 @@ case "$(echo "$WT_SEND_ORDERS" | tr '[:upper:]' '[:lower:]')" in
 esac
 
 "${ARGS[@]}"
-

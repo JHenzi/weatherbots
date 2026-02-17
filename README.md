@@ -104,6 +104,7 @@ Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if keys were
 
 - **Prediction modes**: LSTM-only, provider-forecast-only, or blended. Multiple providers: Open-Meteo, Visual Crossing, Tomorrow.io, WeatherAPI, OpenWeatherMap, Pirate Weather, NWS.
 - **Calibration**: Nightly job updates per-source MAE and writes `Data/weights.json`; consensus is MAE-weighted (or equal) across providers.
+- **Contextual bandit (optional)**: Logs weather-context features (`sunny`/`mixed`/`cloudy` + condition text vote), selects mode (`forecast`/`blend`/`lstm`) in shadow/canary modes, and updates LinUCB state nightly from settled outcomes.
 - **Intraday pulse**: Cron runs prediction snapshots and writes `predictions_latest.csv`; trade job runs at 13:00 local per city (ny/fl at 13:00 ET, il/tx at 14:00 ET).
 - **Trading**: Orderbook-aware selection (EV-based), per-city sigma, budget allocation by confidence and historical MAE/hit-rate.
 - **Dashboard**: Web and TUI — live NWS observations, next-trade predictions, Risk/Sell advisor, positions, analytics.
@@ -116,6 +117,7 @@ Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if keys were
 | `Data/daily_metrics.csv` | Rollups for allocation and scoring |
 | `Data/eval_history.csv` | Per-trade outcome and market state |
 | `Data/city_metadata.json` | Per-city historical MAE (used for σ) |
+| `Data/context_features_history.csv`, `Data/bandit_decisions_history.csv`, `Data/bandit_rewards_history.csv` | Contextual-bandit telemetry and settled reward updates |
 
 > [!NOTE]
 > **Schemas and key fields:** [Data reference](documentation/data_reference.md)

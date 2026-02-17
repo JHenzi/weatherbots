@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import math
 import os
+import random
 import statistics
 import time
 from zoneinfo import ZoneInfo
@@ -12,6 +13,10 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from bandit.context import vote_provider_conditions
+from bandit.modes import choose_mode_prediction, compute_candidate_mode_predictions
+from bandit.policy import build_feature_vector, load_policy_state, save_policy_state
 
 try:
     import db  # type: ignore  # local Postgres helpers
@@ -79,6 +84,55 @@ def _safe_float(x) -> float | None:
         return float(s)
     except Exception:
         return None
+
+
+def _safe_int(x, default: int = 0) -> int:
+    try:
+        return int(float(x))
+    except Exception:
+        return int(default)
+
+
+def _safe_json_dumps(x) -> str:
+    try:
+        return json.dumps(x, sort_keys=True)
+    except Exception:
+        return "{}"
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return float(default)
+    try:
+        return float(str(raw).strip())
+    except Exception:
+        return float(default)
+
+
+def _parse_provider_result(raw) -> tuple[float | None, dict[str, object]]:
+    """
+    Provider functions return either:
+      - float | None (legacy)
+      - (float | None, dict context)
+    """
+    if isinstance(raw, tuple) and len(raw) == 2:
+        val = _safe_float(raw[0])
+        ctx = raw[1] if isinstance(raw[1], dict) else {}
+        return val, dict(ctx)
+    return _safe_float(raw), {}
+
+
+def _bandit_mode_default() -> str:
+    mode = str(os.getenv("WT_BANDIT_MODE", "off")).strip().lower()
+    if mode not in ("off", "shadow", "canary"):
+        return "off"
+    return mode
+
+
+def _bandit_seed_for(city: str, trade_date: str, run_ts: str) -> int:
+    seed_s = f"{city}|{trade_date}|{run_ts}"
+    return abs(hash(seed_s)) % (2**31 - 1)
 
 
 def _parse_iso_dt(s: str) -> dt.datetime | None:
@@ -216,6 +270,73 @@ def _append_intraday_row(path: str, row: dict) -> None:
         w.writerow(payload)
     if db is not None:
         db.insert_intraday_snapshot_row(payload)  # type: ignore[attr-defined]
+
+
+def _append_context_feature_row(path: str, row: dict) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    write_header = not os.path.exists(path)
+    fieldnames = [
+        "run_ts",
+        "decision_role",
+        "bandit_mode",
+        "city",
+        "trade_date",
+        "provider_count",
+        "spread_f",
+        "condition_token",
+        "condition_label",
+        "sky_label",
+        "mean_cloud_cover",
+        "vote_entropy",
+        "raw_provider_labels_json",
+        "token_weights_json",
+    ]
+    payload = {k: row.get(k, "") for k in fieldnames}
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            w.writeheader()
+        w.writerow(payload)
+    if db is not None:
+        db.insert_context_feature_row(payload)  # type: ignore[attr-defined]
+
+
+def _append_bandit_decision_row(path: str, row: dict) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    write_header = not os.path.exists(path)
+    fieldnames = [
+        "run_ts",
+        "decision_role",
+        "bandit_mode",
+        "city",
+        "trade_date",
+        "selected_action",
+        "applied_action",
+        "action_reason",
+        "guardrail_reason",
+        "mode_forecast_pred",
+        "mode_blend_pred",
+        "mode_lstm_pred",
+        "feature_vector_json",
+        "feature_map_json",
+        "policy_scores_json",
+        "condition_token",
+        "condition_label",
+        "sky_label",
+        "mean_cloud_cover",
+        "vote_entropy",
+        "provider_count",
+        "spread_f",
+        "raw_provider_labels_json",
+    ]
+    payload = {k: row.get(k, "") for k in fieldnames}
+    with open(path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            w.writeheader()
+        w.writerow(payload)
+    if db is not None:
+        db.insert_bandit_decision_row(payload)  # type: ignore[attr-defined]
 
 
 def _load_recent_intraday_history(
@@ -560,7 +681,43 @@ def _append_predictions_history(path: str, latest_rows: list[dict], *, extra_fie
                 db.insert_prediction_row(row_to_write)  # type: ignore[attr-defined]
 
 
-def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> float | None:
+def _openmeteo_code_to_text(code: int | None) -> str:
+    if code is None:
+        return ""
+    mapping = {
+        0: "clear",
+        1: "mainly clear",
+        2: "partly cloudy",
+        3: "overcast",
+        45: "fog",
+        48: "depositing rime fog",
+        51: "drizzle",
+        53: "drizzle",
+        55: "dense drizzle",
+        56: "freezing drizzle",
+        57: "freezing drizzle",
+        61: "rain",
+        63: "rain",
+        65: "heavy rain",
+        66: "freezing rain",
+        67: "freezing rain",
+        71: "snow",
+        73: "snow",
+        75: "heavy snow",
+        77: "snow grains",
+        80: "rain showers",
+        81: "rain showers",
+        82: "violent rain showers",
+        85: "snow showers",
+        86: "snow showers",
+        95: "thunderstorm",
+        96: "thunderstorm with hail",
+        99: "thunderstorm with hail",
+    }
+    return mapping.get(int(code), f"weather code {int(code)}")
+
+
+def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     lat, lon = LATLON[city]
     session = (
         requests_cache.CachedSession("Data/open_meteo_forecast_cache", expire_after=3600)
@@ -571,7 +728,7 @@ def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> float | None:
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": "temperature_2m_max",
+        "daily": "temperature_2m_max,weather_code",
         "temperature_unit": "fahrenheit",
         "timezone": "UTC",
         "start_date": trade_dt.strftime("%Y-%m-%d"),
@@ -579,19 +736,26 @@ def forecast_tmax_open_meteo(*, city: str, trade_dt: dt.date) -> float | None:
     }
     r = session.get(url, params=params, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     daily = js.get("daily") or {}
     temps = daily.get("temperature_2m_max") or []
+    codes = daily.get("weather_code") or []
     if not temps:
-        return None
-    return _safe_float(temps[0])
+        return (None, {})
+    code = _safe_int(codes[0], default=-1) if codes else None
+    ctx = {
+        "condition_text": _openmeteo_code_to_text(code if code != -1 else None),
+        "condition_icon": "",
+        "cloud_cover": None,
+    }
+    return (_safe_float(temps[0]), ctx)
 
 
-def forecast_tmax_visual_crossing(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_visual_crossing(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     api_key = os.getenv("VISUAL_CROSSING_API_KEY")
     if not api_key:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     start = trade_dt.strftime("%Y-%m-%d")
     end = trade_dt.strftime("%Y-%m-%d")
@@ -609,18 +773,24 @@ def forecast_tmax_visual_crossing(*, city: str, trade_dt: dt.date) -> float | No
     )
     r = session.get(url, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     days = js.get("days") or []
     if not days:
-        return None
-    return _safe_float((days[0] or {}).get("tempmax"))
+        return (None, {})
+    day0 = days[0] or {}
+    ctx = {
+        "condition_text": str(day0.get("conditions") or "").strip(),
+        "condition_icon": str(day0.get("icon") or "").strip(),
+        "cloud_cover": _safe_float(day0.get("cloudcover")),
+    }
+    return (_safe_float(day0.get("tempmax")), ctx)
 
 
-def forecast_tmax_tomorrow(*, city: str, trade_dt: dt.date, _state: dict) -> float | None:
+def forecast_tmax_tomorrow(*, city: str, trade_dt: dt.date, _state: dict) -> tuple[float | None, dict[str, object]]:
     api_key = os.getenv("TOMORROW")
     if not api_key:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     url = "https://api.tomorrow.io/v4/weather/forecast"
     params = {
@@ -645,28 +815,42 @@ def forecast_tmax_tomorrow(*, city: str, trade_dt: dt.date, _state: dict) -> flo
     if not getattr(r, "from_cache", False):
         _state["last_req_ts"] = time.time()
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     tl = (js.get("timelines") or {}).get("daily") or []
     if not tl:
-        return None
+        return (None, {})
     target = trade_dt.strftime("%Y-%m-%d")
     for item in tl:
         t = str(item.get("time") or "")
         if t.startswith(target):
             vals = item.get("values") or {}
-            return _safe_float(vals.get("temperatureMax"))
+            return (
+                _safe_float(vals.get("temperatureMax")),
+                {
+                    "condition_text": str(vals.get("weatherCodeDay") or vals.get("weatherCodeFullDay") or "").strip(),
+                    "condition_icon": "",
+                    "cloud_cover": _safe_float(vals.get("cloudCoverAvg") or vals.get("cloudCover")),
+                },
+            )
     t0 = str((tl[0] or {}).get("time") or "")
     if t0.startswith(target):
         vals = (tl[0] or {}).get("values") or {}
-        return _safe_float(vals.get("temperatureMax"))
-    return None
+        return (
+            _safe_float(vals.get("temperatureMax")),
+            {
+                "condition_text": str(vals.get("weatherCodeDay") or vals.get("weatherCodeFullDay") or "").strip(),
+                "condition_icon": "",
+                "cloud_cover": _safe_float(vals.get("cloudCoverAvg") or vals.get("cloudCover")),
+            },
+        )
+    return (None, {})
 
 
-def forecast_tmax_weatherapi(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_weatherapi(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     api_key = os.getenv("WEATHERAPI")
     if not api_key:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     url = "https://api.weatherapi.com/v1/forecast.json"
     params = {
@@ -684,16 +868,24 @@ def forecast_tmax_weatherapi(*, city: str, trade_dt: dt.date) -> float | None:
     )
     r = session.get(url, params=params, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     fc = (js.get("forecast") or {}).get("forecastday") or []
     if not fc:
-        return None
+        return (None, {})
     day = (fc[0] or {}).get("day") or {}
-    return _safe_float(day.get("maxtemp_f"))
+    cond = day.get("condition") or {}
+    return (
+        _safe_float(day.get("maxtemp_f")),
+        {
+            "condition_text": str(cond.get("text") or "").strip(),
+            "condition_icon": str(cond.get("icon") or "").strip(),
+            "cloud_cover": None,
+        },
+    )
 
 
-def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     """
     Google Weather hourly forecast -> take max hourly temp on trade_dt (local to the location).
 
@@ -703,7 +895,7 @@ def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | Non
     """
     api_key = os.getenv("GOOGLE") or os.getenv("GOOGLE_WEATHER_API_KEY")
     if not api_key:
-        return None
+        return (None, {})
 
     lat, lon = LATLON[city]
     url = "https://weather.googleapis.com/v1/forecast/hours:lookup"
@@ -720,7 +912,7 @@ def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | Non
     )
     r = session.get(url, params=params, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json() or {}
 
     tz_id = ((js.get("timeZone") or {}) if isinstance(js.get("timeZone"), dict) else {}).get("id") or "UTC"
@@ -731,6 +923,7 @@ def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | Non
 
     hours = js.get("forecastHours") or []
     best = None
+    best_cond: dict[str, object] = {}
     for h in hours:
         interval = (h or {}).get("interval") or {}
         st = interval.get("startTime") or interval.get("endTime")
@@ -755,16 +948,23 @@ def forecast_tmax_google_weather(*, city: str, trade_dt: dt.date) -> float | Non
             continue
         if unit == "CELSIUS":
             fv = (fv * 9.0 / 5.0) + 32.0
-        best = fv if best is None else max(best, fv)
-    return best
+        if best is None or fv >= best:
+            best = fv
+            wc = (h or {}).get("weatherCondition") or {}
+            best_cond = {
+                "condition_text": str(wc.get("description") or wc.get("type") or "").strip(),
+                "condition_icon": str(wc.get("iconBaseUri") or "").strip(),
+                "cloud_cover": _safe_float((h or {}).get("cloudCover")),
+            }
+    return (best, best_cond)
 
 
-def forecast_tmax_openweathermap(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_openweathermap(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     if str(os.getenv("DISABLE_OPENWEATHERMAP", "")).strip().lower() in ("1", "true", "yes", "y"):
-        return None
+        return (None, {})
     api_key = os.getenv("OPENWEATHERMAP_API_KEY")
     if not api_key:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     url = "https://api.openweathermap.org/data/2.5/forecast"
     params = {"lat": lat, "lon": lon, "appid": api_key, "units": "imperial"}
@@ -775,13 +975,14 @@ def forecast_tmax_openweathermap(*, city: str, trade_dt: dt.date) -> float | Non
     )
     r = session.get(url, params=params, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     tz_offset = int(((js.get("city") or {}).get("timezone")) or 0)
     items = js.get("list") or []
     if not items:
-        return None
+        return (None, {})
     max_t = None
+    best_ctx: dict[str, object] = {}
     for it in items:
         ts = it.get("dt")
         if ts is None:
@@ -796,14 +997,21 @@ def forecast_tmax_openweathermap(*, city: str, trade_dt: dt.date) -> float | Non
         v = _safe_float(main.get("temp_max", main.get("temp")))
         if v is None:
             continue
-        max_t = v if max_t is None else max(max_t, v)
-    return max_t
+        if max_t is None or v >= max_t:
+            max_t = v
+            weather = (it.get("weather") or [{}])[0] or {}
+            best_ctx = {
+                "condition_text": str(weather.get("description") or weather.get("main") or "").strip(),
+                "condition_icon": str(weather.get("icon") or "").strip(),
+                "cloud_cover": _safe_float((it.get("clouds") or {}).get("all")),
+            }
+    return (max_t, best_ctx)
 
 
-def forecast_tmax_pirateweather(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_pirateweather(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     api_key = os.getenv("PIRATE_WEATHER_API_KEY") or os.getenv("PIRATE_WEATER_API_KEY")
     if not api_key:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     url = f"https://api.pirateweather.net/forecast/{api_key}/{lat},{lon}"
     params = {"units": "us", "exclude": "currently,minutely,hourly,alerts"}
@@ -814,7 +1022,7 @@ def forecast_tmax_pirateweather(*, city: str, trade_dt: dt.date) -> float | None
     )
     r = session.get(url, params=params, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     tz_name = js.get("timezone") or "UTC"
     try:
@@ -832,14 +1040,21 @@ def forecast_tmax_pirateweather(*, city: str, trade_dt: dt.date) -> float | None
             continue
         if dd != trade_dt:
             continue
-        return _safe_float(d.get("temperatureMax", d.get("temperatureHigh")))
-    return None
+        return (
+            _safe_float(d.get("temperatureMax", d.get("temperatureHigh"))),
+            {
+                "condition_text": str(d.get("summary") or "").strip(),
+                "condition_icon": str(d.get("icon") or "").strip(),
+                "cloud_cover": _safe_float(d.get("cloudCover")),
+            },
+        )
+    return (None, {})
 
 
-def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> float | None:
+def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> tuple[float | None, dict[str, object]]:
     user_agent = os.getenv("NWS_USER_AGENT")
     if not user_agent:
-        return None
+        return (None, {})
     lat, lon = LATLON[city]
     points_url = f"https://api.weather.gov/points/{lat},{lon}"
     session = (
@@ -850,18 +1065,19 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> float | None:
     headers = {"User-Agent": user_agent, "Accept": "application/geo+json"}
     r = session.get(points_url, headers=headers, timeout=30)
     if r.status_code != 200:
-        return None
+        return (None, {})
     js = r.json()
     props = js.get("properties") or {}
     forecast_url = props.get("forecast")
     if not forecast_url:
-        return None
+        return (None, {})
     r2 = session.get(str(forecast_url), headers=headers, timeout=30)
     if r2.status_code != 200:
-        return None
+        return (None, {})
     js2 = r2.json()
     periods = (js2.get("properties") or {}).get("periods") or []
     best = None
+    best_ctx: dict[str, object] = {}
     for p in periods:
         st = p.get("startTime")
         if not st:
@@ -873,12 +1089,25 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> float | None:
         if dt_start.date() != trade_dt:
             continue
         if p.get("isDaytime") is True:
-            return _safe_float(p.get("temperature"))
+            return (
+                _safe_float(p.get("temperature")),
+                {
+                    "condition_text": str(p.get("shortForecast") or p.get("detailedForecast") or "").strip(),
+                    "condition_icon": str(p.get("icon") or "").strip(),
+                    "cloud_cover": None,
+                },
+            )
         v = _safe_float(p.get("temperature"))
         if v is None:
             continue
-        best = v if best is None else max(best, v)
-    return best
+        if best is None or v >= best:
+            best = v
+            best_ctx = {
+                "condition_text": str(p.get("shortForecast") or p.get("detailedForecast") or "").strip(),
+                "condition_icon": str(p.get("icon") or "").strip(),
+                "cloud_cover": None,
+            }
+    return (best, best_ctx)
 
 
 def _parse_args():
@@ -913,6 +1142,31 @@ def _parse_args():
     )
     p.add_argument("--performance-csv", type=str, default="Data/source_performance.csv", help="Source performance for MAE-weighted consensus")
     p.add_argument("--mae-window-days", type=int, default=7, help="Rolling window (days) for MAE")
+    p.add_argument("--decision-role", type=str, default="monitoring", choices=["trade", "monitoring"])
+    p.add_argument(
+        "--bandit-mode",
+        type=str,
+        default=_bandit_mode_default(),
+        choices=["off", "shadow", "canary"],
+        help="Contextual bandit mode: off|shadow|canary (default from WT_BANDIT_MODE).",
+    )
+    p.add_argument("--bandit-state-path", type=str, default="Data/bandit_state.json")
+    p.add_argument("--context-features-csv", type=str, default="Data/context_features_history.csv")
+    p.add_argument("--bandit-decisions-csv", type=str, default="Data/bandit_decisions_history.csv")
+    p.add_argument("--bandit-alpha", type=float, default=_env_float("WT_BANDIT_ALPHA", 0.7))
+    p.add_argument("--bandit-epsilon-shadow", type=float, default=_env_float("WT_BANDIT_EPSILON_SHADOW", 0.15))
+    p.add_argument("--bandit-epsilon-canary", type=float, default=_env_float("WT_BANDIT_EPSILON_CANARY", 0.05))
+    p.add_argument("--bandit-lambda", type=float, default=_env_float("WT_BANDIT_LAMBDA", 1.0))
+    p.add_argument("--bandit-canary-city", type=str, default=str(os.getenv("WT_BANDIT_CANARY_CITY", "ny")).strip().lower())
+    p.add_argument("--bandit-max-spread", type=float, default=3.0, help="Guardrail spread threshold for canary apply.")
+    p.add_argument("--bandit-min-confidence", type=float, default=0.35, help="Guardrail min confidence for canary apply.")
+    p.add_argument(
+        "--bandit-max-deviation-f",
+        type=float,
+        default=6.0,
+        help="Guardrail max |selected - forecast| in F before fallback in canary mode.",
+    )
+    p.add_argument("--blend-forecast-weight", type=float, default=0.8)
     return p.parse_args()
 
 
@@ -926,6 +1180,21 @@ if __name__ == "__main__":
     wrote = 0
     pred_rows: list[dict] = []
     intraday_rows: list[dict] = []
+
+    policy, policy_state = load_policy_state(
+        args.bandit_state_path,
+        alpha=float(args.bandit_alpha),
+        reg_lambda=float(args.bandit_lambda),
+        epsilon=0.0,
+    )
+    if args.bandit_mode == "shadow":
+        policy.set_epsilon(float(args.bandit_epsilon_shadow))
+    elif args.bandit_mode == "canary":
+        policy.set_epsilon(float(args.bandit_epsilon_canary))
+    else:
+        policy.set_epsilon(0.0)
+    if args.bandit_mode != "off" and not args.no_write:
+        save_policy_state(args.bandit_state_path, policy, policy_state)
 
     rolling_mae: dict[str, dict[str, float]] = {}
     if getattr(args, "performance_csv", None) and os.path.exists(getattr(args, "performance_csv", "")):
@@ -946,24 +1215,30 @@ if __name__ == "__main__":
     for target_dt in lead_dates:
         trade_date_str = target_dt.strftime("%Y-%m-%d")
         for city in CITIES:
-            tmax_open_meteo = _try_call(forecast_tmax_open_meteo, city=city, trade_dt=target_dt)
-            tmax_visual_crossing = _try_call(
-                forecast_tmax_visual_crossing, city=city, trade_dt=target_dt
+            tmax_open_meteo, ctx_open_meteo = _parse_provider_result(
+                _try_call(forecast_tmax_open_meteo, city=city, trade_dt=target_dt)
             )
-            tmax_tomorrow = _try_call(
-                forecast_tmax_tomorrow, city=city, trade_dt=target_dt, _state=tomorrow_state
+            tmax_visual_crossing, ctx_visual_crossing = _parse_provider_result(
+                _try_call(forecast_tmax_visual_crossing, city=city, trade_dt=target_dt)
             )
-            tmax_weatherapi = _try_call(forecast_tmax_weatherapi, city=city, trade_dt=target_dt)
-            tmax_google_weather = _try_call(
-                forecast_tmax_google_weather, city=city, trade_dt=target_dt
+            tmax_tomorrow, ctx_tomorrow = _parse_provider_result(
+                _try_call(forecast_tmax_tomorrow, city=city, trade_dt=target_dt, _state=tomorrow_state)
             )
-            tmax_openweathermap = _try_call(
-                forecast_tmax_openweathermap, city=city, trade_dt=target_dt
+            tmax_weatherapi, ctx_weatherapi = _parse_provider_result(
+                _try_call(forecast_tmax_weatherapi, city=city, trade_dt=target_dt)
             )
-            tmax_pirateweather = _try_call(
-                forecast_tmax_pirateweather, city=city, trade_dt=target_dt
+            tmax_google_weather, ctx_google_weather = _parse_provider_result(
+                _try_call(forecast_tmax_google_weather, city=city, trade_dt=target_dt)
             )
-            tmax_weather_gov = _try_call(forecast_tmax_weather_gov, city=city, trade_dt=target_dt)
+            tmax_openweathermap, ctx_openweathermap = _parse_provider_result(
+                _try_call(forecast_tmax_openweathermap, city=city, trade_dt=target_dt)
+            )
+            tmax_pirateweather, ctx_pirateweather = _parse_provider_result(
+                _try_call(forecast_tmax_pirateweather, city=city, trade_dt=target_dt)
+            )
+            tmax_weather_gov, ctx_weather_gov = _parse_provider_result(
+                _try_call(forecast_tmax_weather_gov, city=city, trade_dt=target_dt)
+            )
 
             vals = {
                 "google-weather": tmax_google_weather,
@@ -976,6 +1251,16 @@ if __name__ == "__main__":
                 "weather.gov": tmax_weather_gov,
             }
             available = {k: float(v) for k, v in vals.items() if v is not None}
+            provider_contexts = {
+                "google-weather": ctx_google_weather,
+                "open-meteo": ctx_open_meteo,
+                "openweathermap": ctx_openweathermap,
+                "pirateweather": ctx_pirateweather,
+                "visual-crossing": ctx_visual_crossing,
+                "tomorrow": ctx_tomorrow,
+                "weatherapi": ctx_weatherapi,
+                "weather.gov": ctx_weather_gov,
+            }
 
             mae_map = rolling_mae.get(city, {}) if rolling_mae else {}
             weights_used = {}
@@ -1026,6 +1311,17 @@ if __name__ == "__main__":
             skill_conf = _skill_from_weights(weights_used)
             conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
 
+            context_vote = vote_provider_conditions(
+                provider_contexts,
+                provider_weights=weights_used if weights_used else None,
+            )
+            provider_count = len(available)
+            condition_token = str(context_vote.get("condition_token") or "other").strip().lower()
+            condition_label = str(context_vote.get("condition_label") or "").strip()
+            sky_label = str(context_vote.get("sky_label") or "mixed").strip().lower()
+            mean_cloud_cover = _safe_float(context_vote.get("mean_cloud_cover"))
+            vote_entropy = _safe_float(context_vote.get("vote_entropy")) or 0.0
+
             # 4) Conviction score: blend confidence with stability of recent provider skews.
             conviction_score: float | None
             if conf_final is None:
@@ -1037,11 +1333,120 @@ if __name__ == "__main__":
                 conviction_score = max(0.0, min(1.0, raw / 0.9)) if raw > 0 else 0.0
 
             ts_now = _now_iso_local()
+            candidate_modes = compute_candidate_mode_predictions(
+                city=city,
+                forecast_pred=mean_forecast,
+                blend_forecast_weight=float(args.blend_forecast_weight),
+            )
+            mode_forecast_pred = _safe_float(candidate_modes.get("mode_forecast_pred"))
+            mode_blend_pred = _safe_float(candidate_modes.get("mode_blend_pred"))
+            mode_lstm_pred = _safe_float(candidate_modes.get("mode_lstm_pred"))
+            candidate_pred_map: dict[str, float | None] = {
+                "forecast": mode_forecast_pred,
+                "blend": mode_blend_pred,
+                "lstm": mode_lstm_pred,
+            }
+            available_actions = [a for a, v in candidate_pred_map.items() if v is not None]
+
+            selected_action = "forecast"
+            applied_action = "forecast"
+            action_reason = "bandit_off"
+            guardrail_reason = ""
+            policy_scores: dict[str, object] = {}
+            feature_vector = []
+            feature_map: dict[str, float] = {}
+
+            if args.bandit_mode in ("shadow", "canary") and available_actions:
+                fvec, fmap = build_feature_vector(
+                    city=city,
+                    trade_date=target_dt,
+                    spread_f=sigma,
+                    provider_count=provider_count,
+                    condition_token=condition_token,
+                    sky_label=sky_label,
+                    mean_cloud_cover=mean_cloud_cover,
+                    vote_entropy=vote_entropy,
+                )
+                feature_vector = [round(float(v), 8) for v in fvec.tolist()]
+                feature_map = {k: float(v) for k, v in fmap.items()}
+                rng = random.Random(_bandit_seed_for(city, trade_date_str, ts_now))
+                selected_action, score_info = policy.select_action(
+                    fvec,
+                    available_actions=available_actions,
+                    rng=rng,
+                )
+                policy_scores = score_info
+                action_reason = str(score_info.get("selected_via") or "linucb")
+                selected_action, selected_pred, select_reason = choose_mode_prediction(
+                    selected_action=selected_action,
+                    candidates=candidate_pred_map,
+                    fallback_action="forecast",
+                )
+                if select_reason != "selected":
+                    guardrail_reason = select_reason
+
+                if args.bandit_mode == "shadow":
+                    applied_action, _, _ = choose_mode_prediction(
+                        selected_action="forecast",
+                        candidates=candidate_pred_map,
+                        fallback_action=selected_action,
+                    )
+                    guardrail_reason = ";".join([x for x in [guardrail_reason, "shadow_no_apply"] if x])
+                else:
+                    # Canary scope gate.
+                    canary_scope_ok = bool(
+                        city == str(args.bandit_canary_city).strip().lower()
+                        and str(args.decision_role).strip().lower() == "trade"
+                    )
+                    if not canary_scope_ok:
+                        applied_action, _, _ = choose_mode_prediction(
+                            selected_action="forecast",
+                            candidates=candidate_pred_map,
+                            fallback_action=selected_action,
+                        )
+                        guardrail_reason = ";".join([x for x in [guardrail_reason, "canary_scope"] if x])
+                    else:
+                        applied_action = selected_action
+                        applied_pred = selected_pred
+                        if sigma is not None and float(sigma) > float(args.bandit_max_spread):
+                            applied_action, applied_pred, _ = choose_mode_prediction(
+                                selected_action="forecast",
+                                candidates=candidate_pred_map,
+                                fallback_action=selected_action,
+                            )
+                            guardrail_reason = ";".join([x for x in [guardrail_reason, "spread_guardrail"] if x])
+                        if conf_final is not None and float(conf_final) < float(args.bandit_min_confidence):
+                            applied_action, applied_pred, _ = choose_mode_prediction(
+                                selected_action="forecast",
+                                candidates=candidate_pred_map,
+                                fallback_action=selected_action,
+                            )
+                            guardrail_reason = ";".join([x for x in [guardrail_reason, "confidence_guardrail"] if x])
+                        if (
+                            applied_pred is not None
+                            and mode_forecast_pred is not None
+                            and abs(float(applied_pred) - float(mode_forecast_pred)) > float(args.bandit_max_deviation_f)
+                        ):
+                            applied_action, _, _ = choose_mode_prediction(
+                                selected_action="forecast",
+                                candidates=candidate_pred_map,
+                                fallback_action=selected_action,
+                            )
+                            guardrail_reason = ";".join([x for x in [guardrail_reason, "deviation_guardrail"] if x])
+
+            applied_action, applied_prediction, apply_reason = choose_mode_prediction(
+                selected_action=applied_action,
+                candidates=candidate_pred_map,
+                fallback_action="forecast",
+            )
+            if apply_reason != "selected":
+                guardrail_reason = ";".join([x for x in [guardrail_reason, apply_reason] if x])
+
             row = {
                 "timestamp": ts_now,
                 "city": city,
                 "trade_date": trade_date_str,
-                "mean_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
+                "mean_forecast": "" if applied_prediction is None else f"{applied_prediction:.4f}",
                 "current_sigma": "" if sigma is None else f"{sigma:.4f}",
                 "tmax_open_meteo": "" if tmax_open_meteo is None else f"{tmax_open_meteo:.4f}",
                 "tmax_visual_crossing": "" if tmax_visual_crossing is None else f"{tmax_visual_crossing:.4f}",
@@ -1062,11 +1467,57 @@ if __name__ == "__main__":
             if not args.no_write:
                 _append_intraday_row(args.out_csv, row)
                 wrote += 1
+                _append_context_feature_row(
+                    args.context_features_csv,
+                    {
+                        "run_ts": ts_now,
+                        "decision_role": args.decision_role,
+                        "bandit_mode": args.bandit_mode,
+                        "city": city,
+                        "trade_date": trade_date_str,
+                        "provider_count": str(provider_count),
+                        "spread_f": "" if sigma is None else f"{sigma:.4f}",
+                        "condition_token": condition_token,
+                        "condition_label": condition_label,
+                        "sky_label": sky_label,
+                        "mean_cloud_cover": "" if mean_cloud_cover is None else f"{float(mean_cloud_cover):.4f}",
+                        "vote_entropy": f"{float(vote_entropy):.6f}",
+                        "raw_provider_labels_json": str(context_vote.get("raw_provider_labels_json") or "{}"),
+                        "token_weights_json": str(context_vote.get("token_weights_json") or "{}"),
+                    },
+                )
+                _append_bandit_decision_row(
+                    args.bandit_decisions_csv,
+                    {
+                        "run_ts": ts_now,
+                        "decision_role": args.decision_role,
+                        "bandit_mode": args.bandit_mode,
+                        "city": city,
+                        "trade_date": trade_date_str,
+                        "selected_action": selected_action,
+                        "applied_action": applied_action,
+                        "action_reason": action_reason,
+                        "guardrail_reason": guardrail_reason,
+                        "mode_forecast_pred": "" if mode_forecast_pred is None else f"{mode_forecast_pred:.4f}",
+                        "mode_blend_pred": "" if mode_blend_pred is None else f"{mode_blend_pred:.4f}",
+                        "mode_lstm_pred": "" if mode_lstm_pred is None else f"{mode_lstm_pred:.4f}",
+                        "feature_vector_json": _safe_json_dumps(feature_vector),
+                        "feature_map_json": _safe_json_dumps(feature_map),
+                        "policy_scores_json": _safe_json_dumps(policy_scores),
+                        "condition_token": condition_token,
+                        "condition_label": condition_label,
+                        "sky_label": sky_label,
+                        "mean_cloud_cover": "" if mean_cloud_cover is None else f"{float(mean_cloud_cover):.4f}",
+                        "vote_entropy": f"{float(vote_entropy):.6f}",
+                        "provider_count": str(provider_count),
+                        "spread_f": "" if sigma is None else f"{sigma:.4f}",
+                        "raw_provider_labels_json": str(context_vote.get("raw_provider_labels_json") or "{}"),
+                    },
+                )
 
             # Write predictions for both today and tomorrow so the dashboard always has
             # the next trade date (e.g. after 7 PM ET we show tomorrow; file must have it).
             if args.write_predictions:
-                spread_f = sigma if sigma is not None else ""
                 conf = "" if conf_final is None else f"{float(conf_final):.4f}"
                 conviction_str = (
                     "" if conviction_score is None else f"{float(conviction_score):.4f}"
@@ -1075,9 +1526,9 @@ if __name__ == "__main__":
                     {
                         "date": trade_date_str,
                         "city": city,
-                        "tmax_predicted": "" if mean_forecast is None else f"{mean_forecast:.4f}",
-                        "tmax_lstm": "",
-                        "tmax_forecast": "" if mean_forecast is None else f"{mean_forecast:.4f}",
+                        "tmax_predicted": "" if applied_prediction is None else f"{applied_prediction:.4f}",
+                        "tmax_lstm": "" if mode_lstm_pred is None else f"{mode_lstm_pred:.4f}",
+                        "tmax_forecast": "" if mode_forecast_pred is None else f"{mode_forecast_pred:.4f}",
                         "spread_f": "" if sigma is None else f"{float(sigma):.4f}",
                         "confidence_score": conf,
                         "conviction_score": conviction_str,
@@ -1157,7 +1608,7 @@ if __name__ == "__main__":
                     "run_ts": _now_iso_local(),
                     "env": args.env,
                     "prediction_mode": "forecast",
-                    "blend_forecast_weight": "1.0",
+                    "blend_forecast_weight": str(args.blend_forecast_weight),
                     "refresh_history": "False",
                     "retrain_lstm": "False",
                 },
@@ -1169,4 +1620,3 @@ if __name__ == "__main__":
         + (f" predictions_latest={args.predictions_latest}" if (args.write_predictions and not args.no_write) else "")
         + (" (no-write)" if args.no_write else "")
     )
-

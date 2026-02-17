@@ -27,6 +27,11 @@ This document describes the purpose and schema of the key data files used and ge
 - **Used by**: `kalshi_trader.py` (calculating $\sigma$).
 - **Updated by**: `update_city_metadata.py`.
 
+### `bandit_state.json`
+- **Purpose**: Stores contextual bandit LinUCB matrices and metadata.
+- **Used by**: `intraday_pulse.py` (action selection), `bandit_update.py` (nightly updates).
+- **Updated by**: `bandit_update.py`.
+
 ## Operational Logs
 
 ### `observations_history.csv`
@@ -36,6 +41,18 @@ This document describes the purpose and schema of the key data files used and ge
 ### `predictions_history.csv`
 - **Purpose**: A running log of every prediction made by the bot.
 - **Key Columns**: `date`, `city`, `tmax_predicted`, `tmax_lstm`, `tmax_forecast`, `spread_f`, `confidence_score`, `sources_used`.
+
+### `context_features_history.csv`
+- **Purpose**: Context telemetry used for correlation analysis and contextual bandit features.
+- **Key Columns**: `run_ts`, `decision_role`, `bandit_mode`, `trade_date`, `city`, `provider_count`, `spread_f`, `condition_token`, `condition_label`, `sky_label`, `mean_cloud_cover`, `vote_entropy`.
+
+### `bandit_decisions_history.csv`
+- **Purpose**: Logs selected vs applied mode action per city/date with guardrail reasons and feature vectors.
+- **Key Columns**: `run_ts`, `decision_role`, `bandit_mode`, `trade_date`, `city`, `selected_action`, `applied_action`, `mode_forecast_pred`, `mode_blend_pred`, `mode_lstm_pred`, `policy_scores_json`.
+
+### `bandit_rewards_history.csv`
+- **Purpose**: Nightly resolved rewards after settlement, including per-mode error and normalized reward.
+- **Key Columns**: `run_ts`, `trade_date`, `city`, `actual_tmax`, `error_forecast`, `error_blend`, `error_lstm`, `reward_forecast`, `reward_blend`, `reward_lstm`, `reward_chosen`.
 
 ### `trades_history.csv`
 - **Purpose**: Tracks every trade intent and actual execution. Used for idempotency.
@@ -63,7 +80,7 @@ This document describes the purpose and schema of the key data files used and ge
 
 ## Database (Postgres)
 
-When `ENABLE_PG_WRITE` is set, the same data is mirrored into Postgres. Key tables include `predictions`, `trades`, `decisions`, `eval_events`, `intraday_snapshots`, `observations`, `eval_metrics`, `source_performance`, `weights_history`. The `observations` table mirrors `observations_history.csv` (observed_at, city_id, stid, temp, observed_high_today, projected_high, trend_*, acceleration, time_temp_will_max).
+When `ENABLE_PG_WRITE` is set, the same data is mirrored into Postgres. Key tables include `predictions`, `trades`, `decisions`, `eval_events`, `intraday_snapshots`, `observations`, `eval_metrics`, `source_performance`, `weights_history`, plus contextual-bandit tables `context_features`, `bandit_decisions`, `bandit_rewards`, and `bandit_state_snapshots`. The `observations` table mirrors `observations_history.csv` (observed_at, city_id, stid, temp, observed_high_today, projected_high, trend_*, acceleration, time_temp_will_max).
 
 ## Model Artifacts
 

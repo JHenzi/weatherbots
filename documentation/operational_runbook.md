@@ -7,7 +7,7 @@ How to run the system autonomously, control budget and live trading, and perform
 Goal: you do a **one-time setup**, then the container runs on its own:
 
 - **Daily trade job**: runs `run_trade.sh` (intraday_pulse + kalshi_trader) at 07:00, 13:00, and 14:00 ET (13:00 local gate: ny/fl at 13:00 ET, il/tx at 14:00 ET).
-- **Nightly calibration job**: runs `calibrate_sources.py` for *yesterday* to update per-source error logs + learned weights when NWS CLI truth is available.
+- **Nightly calibration job**: runs `calibrate_sources.py` for *yesterday* to update per-source error logs + learned weights when NWS CLI truth is available, then runs `bandit_update.py` to update contextual-bandit state/rewards.
 - **Nightly settlement/metrics job**: runs `settle_eval.py` + `daily_metrics.py` for *yesterday* to backfill realized outcomes and roll up MAE/RMSE + hit-rate + PnL.
 
 ### One-time setup
@@ -67,6 +67,7 @@ Then restart the container: `docker compose up -d`
   - `Data/daily_metrics.csv`
   - `Data/source_performance.csv`
   - `Data/weights.json` / `Data/weights_history.csv`
+  - `Data/context_features_history.csv` / `Data/bandit_decisions_history.csv` / `Data/bandit_rewards_history.csv` / `Data/bandit_state.json`
 
 ---
 

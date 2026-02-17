@@ -81,3 +81,16 @@ Orders are auto-sized up to the city’s allocated budget and per-run cap, bound
 ### Sigma (city-aware)
 
 For each city: `sigma = max(current_spread, historical_MAE)` so predictable cities trade with tighter distributions.
+
+## 8) Contextual bandit (mode selection)
+
+`intraday_pulse.py` can log weather context and mode-selection decisions for `forecast` / `blend` / `lstm`:
+
+- **Context telemetry**: `Data/context_features_history.csv` (condition token/label, sky label, cloud proxy, vote entropy, provider count, spread).
+- **Decisions**: `Data/bandit_decisions_history.csv` (selected action, applied action, guardrail reason, candidate predictions, feature vector).
+- **State**: `Data/bandit_state.json` (LinUCB matrices).
+
+Nightly update (`bandit_update.py`, called from `scripts/run_calibrate.sh`) joins settled actuals from `Data/source_performance.csv` to compute rewards and update the policy:
+
+- **Rewards**: `Data/bandit_rewards_history.csv`
+- **State snapshots**: `Data/bandit_state_snapshots.csv`

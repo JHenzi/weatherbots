@@ -12,7 +12,7 @@ Single process: background NWS observation fetch + FastAPI API + HTML dashboard.
 
 - **/** — Main dashboard: city cards (current temp, observed high today, projected high, trend °/hr, sun progress), next-trade predictions table (consensus, sources, spread, confidence), Risk/Sell advisor (hedge signals + desktop notifications), at-risk brackets (BUY NO suggestions), and open positions with P/L.
 - **/markets** — Kalshi markets feed: upcoming high-temp markets with filters and links to Kalshi.
-- **/analytics** — Forecasts vs actuals (MAE per source and per city/source), observation projected_high vs actual (MAE by city), and "when to lock in" (by hour and trend bucket). Data from `source_performance.csv` and `observations_history.csv`.
+- **/analytics** — Forecasts vs actuals (MAE per source and per city/source), observation projected_high vs actual (MAE by city), "when to lock in" (by hour and trend bucket), and contextual-bandit analytics (MAE by sky/condition/mode, delta vs forecast baseline, and applied-vs-forecast performance). Data from `source_performance.csv`, `observations_history.csv`, `context_features_history.csv`, `bandit_decisions_history.csv`, and `bandit_rewards_history.csv`.
 
 ### Forecasts vs actuals
 

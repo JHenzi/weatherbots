@@ -53,14 +53,18 @@
             const root = document.getElementById('root');
             const errEl = document.getElementById('error');
             try {
-                const [forecastsRes, projectionRes, lockInRes] = await Promise.all([
+                const [forecastsRes, projectionRes, lockInRes, contextRes, banditRes] = await Promise.all([
                     fetch(API_BASE + '/analytics/forecasts_vs_actuals'),
                     fetch(API_BASE + '/analytics/projection_vs_actual'),
-                    fetch(API_BASE + '/analytics/lock_in')
+                    fetch(API_BASE + '/analytics/lock_in'),
+                    fetch(API_BASE + '/analytics/context_correlation'),
+                    fetch(API_BASE + '/analytics/bandit_performance')
                 ]);
                 const forecasts = await forecastsRes.json();
                 const projection = await projectionRes.json();
                 const lockIn = await lockInRes.json();
+                const contextCorrelation = await contextRes.json();
+                const banditPerformance = await banditRes.json();
 
                 const bySource = forecasts.by_source || [];
                 const byCitySource = forecasts.by_city_source || [];
@@ -93,7 +97,7 @@
                 root.classList.remove('hidden');
                 root.dataset.ready = '1';
 
-                window.__analyticsData__ = { forecasts, projection, lockIn, summary };
+                window.__analyticsData__ = { forecasts, projection, lockIn, contextCorrelation, banditPerformance, summary };
                 window.__analyticsRender__ && window.__analyticsRender__();
             } catch (err) {
                 loading.classList.add('hidden');
@@ -232,12 +236,17 @@
             function App() {
                 const data = window.__analyticsData__;
                 if (!data) return e('div', { className: 'text-slate-500' }, 'No data');
-                const { forecasts, projection, lockIn, summary } = data;
+                const { forecasts, projection, lockIn, contextCorrelation, banditPerformance, summary } = data;
                 const bySource = forecasts.by_source || [];
                 const byCitySource = forecasts.by_city_source || [];
                 const byCity = projection.by_city || [];
                 const byHour = lockIn.by_city_hour || [];
                 const byTrend = lockIn.by_city_trend_bucket || [];
+                const bySkyMode = (contextCorrelation && contextCorrelation.mae_by_sky_city_mode) || [];
+                const byConditionMode = (contextCorrelation && contextCorrelation.mae_by_condition_mode) || [];
+                const byConditionDelta = (contextCorrelation && contextCorrelation.delta_vs_forecast_by_condition) || [];
+                const banditByCity = (banditPerformance && banditPerformance.by_city) || [];
+                const banditOverall = (banditPerformance && banditPerformance.overall) || {};
 
                 return e('div', { className: 'space-y-8' },
                     e('div', { className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' },
@@ -315,6 +324,93 @@
                                 )
                             ),
                             byHour.length === 0 && byTrend.length === 0 && e('p', { className: 'text-slate-500 text-sm' }, 'No lock-in data.')
+                        )
+                    ),
+
+                    e(CollapsibleSection, { key: 'context', title: 'Weather Context Correlation' },
+                        e('div', { className: 'space-y-8' },
+                            bySkyMode.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by city, sky label, and mode'),
+                                e(PaginatedTable, {
+                                    rows: bySkyMode,
+                                    columns: [
+                                        { key: 'city', label: 'City' },
+                                        { key: 'sky_label', label: 'Sky' },
+                                        { key: 'mode', label: 'Mode' },
+                                        { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' },
+                                        { key: 'n', label: 'n', num: true }
+                                    ],
+                                    pageSize: DEFAULT_PAGE_SIZE,
+                                    searchKeys: ['city', 'sky_label', 'mode']
+                                })
+                            ),
+                            byConditionMode.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'MAE by condition label and mode'),
+                                e(PaginatedTable, {
+                                    rows: byConditionMode,
+                                    columns: [
+                                        { key: 'condition_token', label: 'Token' },
+                                        { key: 'condition_label', label: 'Condition' },
+                                        { key: 'mode', label: 'Mode' },
+                                        { key: 'mae', label: 'MAE (°F)', num: true, accuracy: 'mae' },
+                                        { key: 'n', label: 'n', num: true }
+                                    ],
+                                    pageSize: DEFAULT_PAGE_SIZE,
+                                    searchKeys: ['condition_token', 'condition_label', 'mode']
+                                })
+                            ),
+                            byConditionDelta.length > 0 && e('div', null,
+                                e('h3', { className: 'text-sm font-semibold text-slate-300 mb-3' }, 'Delta MAE vs forecast baseline (negative is better)'),
+                                e(PaginatedTable, {
+                                    rows: byConditionDelta,
+                                    columns: [
+                                        { key: 'condition_token', label: 'Token' },
+                                        { key: 'condition_label', label: 'Condition' },
+                                        { key: 'mode', label: 'Mode' },
+                                        { key: 'delta_mae_vs_forecast', label: 'Δ MAE', num: true },
+                                        { key: 'n', label: 'n', num: true }
+                                    ],
+                                    pageSize: DEFAULT_PAGE_SIZE,
+                                    searchKeys: ['condition_token', 'condition_label', 'mode']
+                                })
+                            ),
+                            bySkyMode.length === 0 && byConditionMode.length === 0 && byConditionDelta.length === 0 &&
+                                e('p', { className: 'text-slate-500 text-sm' }, 'No bandit reward/context data yet.')
+                        )
+                    ),
+
+                    e(CollapsibleSection, { key: 'bandit_perf', title: 'Bandit Performance' },
+                        e('div', { className: 'space-y-8' },
+                            e('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
+                                e(SummaryCard, {
+                                    title: 'Applied MAE',
+                                    value: banditOverall.mae_applied != null ? Number(banditOverall.mae_applied).toFixed(3) : null,
+                                    sub: 'Lower is better'
+                                }),
+                                e(SummaryCard, {
+                                    title: 'Forecast Baseline MAE',
+                                    value: banditOverall.mae_forecast_baseline != null ? Number(banditOverall.mae_forecast_baseline).toFixed(3) : null,
+                                    sub: 'Comparable rows'
+                                }),
+                                e(SummaryCard, {
+                                    title: 'Improvement vs Forecast',
+                                    value: banditOverall.improvement_vs_forecast != null ? Number(banditOverall.improvement_vs_forecast).toFixed(3) : null,
+                                    sub: 'Positive means better'
+                                })
+                            ),
+                            banditByCity.length > 0 && e(PaginatedTable, {
+                                rows: banditByCity,
+                                columns: [
+                                    { key: 'city', label: 'City' },
+                                    { key: 'mae_applied', label: 'Applied MAE', num: true },
+                                    { key: 'mae_forecast_baseline', label: 'Forecast MAE', num: true },
+                                    { key: 'improvement_vs_forecast', label: 'Improvement', num: true },
+                                    { key: 'n', label: 'n', num: true }
+                                ],
+                                pageSize: DEFAULT_PAGE_SIZE,
+                                searchKeys: ['city']
+                            }),
+                            banditByCity.length === 0 && e('p', { className: 'text-slate-500 text-sm' }, 'No bandit performance rows yet.')
                         )
                     )
                 );

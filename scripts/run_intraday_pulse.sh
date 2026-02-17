@@ -25,5 +25,4 @@ PY
 )"
 
 echo "[intraday_pulse] $(date -Is) trade_date=${TRADE_DATE}"
-python intraday_pulse.py --trade-date "$TRADE_DATE" --write-predictions
-
+python intraday_pulse.py --trade-date "$TRADE_DATE" --decision-role monitoring --write-predictions

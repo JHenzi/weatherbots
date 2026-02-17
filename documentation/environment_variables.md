@@ -24,6 +24,13 @@ Copy `.env.example` to `.env` and fill in the values you need. Minimum for tradi
 | `PGDATABASE_URL` or `DATABASE_URL` | No | Postgres connection URL (e.g. `postgresql://user:pass@host:5432/dbname`). |
 | `ENABLE_PG_WRITE` | No | Set to `1`/`true`/`yes`/`y` to mirror writes to Postgres. Default: off. |
 | `ENABLE_PG_READ` | No | Set to `true`/`1`/`yes`/`y` to read from Postgres (with CSV fallback). Default: off. |
+| **Contextual bandit** | | |
+| `WT_BANDIT_MODE` | No | `off`, `shadow`, or `canary`. Controls mode-selection bandit behavior in `intraday_pulse.py`. |
+| `WT_BANDIT_CANARY_CITY` | No | City code for canary apply (`ny`, `il`, `tx`, `fl`). Default: `ny`. |
+| `WT_BANDIT_ALPHA` | No | LinUCB exploration scale (default `0.7`). |
+| `WT_BANDIT_EPSILON_SHADOW` | No | Epsilon exploration in shadow mode (default `0.15`). |
+| `WT_BANDIT_EPSILON_CANARY` | No | Epsilon exploration in canary mode (default `0.05`). |
+| `WT_BANDIT_LAMBDA` | No | LinUCB regularization lambda (default `1.0`). |
 | **Other** | | |
 | `TZ` | No | Timezone for cron and dashboard (e.g. `America/New_York`). Default: `America/New_York`. |
 | `WT_ENV` | No | Used by run_trade.sh; `demo` or `prod`. Default in script: `demo`; override in docker-compose. |

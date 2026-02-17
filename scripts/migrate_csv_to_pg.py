@@ -78,6 +78,30 @@ def _parse_args():
         default="Data/weights_history.csv",
         help="Path to weights_history.csv.",
     )
+    p.add_argument(
+        "--context-features",
+        type=str,
+        default="Data/context_features_history.csv",
+        help="Path to context_features_history.csv.",
+    )
+    p.add_argument(
+        "--bandit-decisions",
+        type=str,
+        default="Data/bandit_decisions_history.csv",
+        help="Path to bandit_decisions_history.csv.",
+    )
+    p.add_argument(
+        "--bandit-rewards",
+        type=str,
+        default="Data/bandit_rewards_history.csv",
+        help="Path to bandit_rewards_history.csv.",
+    )
+    p.add_argument(
+        "--bandit-state-snapshots",
+        type=str,
+        default="Data/bandit_state_snapshots.csv",
+        help="Path to bandit_state_snapshots.csv.",
+    )
     return p.parse_args()
 
 
@@ -452,6 +476,173 @@ def migrate_predictions_history(path: str) -> None:
     print(f"[migrate] predictions: {inserted} inserted (rows seen={seen})")
 
 
+def migrate_context_features(path: str) -> None:
+    if not _file_exists(path):
+        print(f"[migrate] context_features: missing {path}, skipping")
+        return
+    conn = _get_conn()
+    cur = conn.cursor()
+    inserted = 0
+    seen = 0
+    with open(path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            seen += 1
+            run_ts = (row.get("run_ts") or "").strip()
+            city = (row.get("city") or "").strip()
+            trade_date = (row.get("trade_date") or "").strip()
+            role = (row.get("decision_role") or "").strip()
+            if not (run_ts and city and trade_date):
+                continue
+            try:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM context_features cf
+                    JOIN cities c ON cf.city_id = c.id
+                    WHERE cf.run_ts = %s
+                      AND c.code = %s
+                      AND cf.trade_date = %s
+                      AND COALESCE(cf.decision_role, '') = %s
+                    LIMIT 1
+                    """,
+                    (run_ts, city, trade_date, role),
+                )
+                if cur.fetchone():
+                    continue
+                db.insert_context_feature_row(row)
+                inserted += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"[migrate] context_features: skipping malformed row (seen={seen}): {e}")
+                continue
+    print(f"[migrate] context_features: {inserted} inserted (rows seen={seen})")
+
+
+def migrate_bandit_decisions(path: str) -> None:
+    if not _file_exists(path):
+        print(f"[migrate] bandit_decisions: missing {path}, skipping")
+        return
+    conn = _get_conn()
+    cur = conn.cursor()
+    inserted = 0
+    seen = 0
+    with open(path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            seen += 1
+            run_ts = (row.get("run_ts") or "").strip()
+            city = (row.get("city") or "").strip()
+            trade_date = (row.get("trade_date") or "").strip()
+            role = (row.get("decision_role") or "").strip()
+            selected = (row.get("selected_action") or "").strip()
+            if not (run_ts and city and trade_date):
+                continue
+            try:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM bandit_decisions bd
+                    JOIN cities c ON bd.city_id = c.id
+                    WHERE bd.run_ts = %s
+                      AND c.code = %s
+                      AND bd.trade_date = %s
+                      AND COALESCE(bd.decision_role, '') = %s
+                      AND COALESCE(bd.selected_action, '') = %s
+                    LIMIT 1
+                    """,
+                    (run_ts, city, trade_date, role, selected),
+                )
+                if cur.fetchone():
+                    continue
+                db.insert_bandit_decision_row(row)
+                inserted += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"[migrate] bandit_decisions: skipping malformed row (seen={seen}): {e}")
+                continue
+    print(f"[migrate] bandit_decisions: {inserted} inserted (rows seen={seen})")
+
+
+def migrate_bandit_rewards(path: str) -> None:
+    if not _file_exists(path):
+        print(f"[migrate] bandit_rewards: missing {path}, skipping")
+        return
+    conn = _get_conn()
+    cur = conn.cursor()
+    inserted = 0
+    seen = 0
+    with open(path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            seen += 1
+            run_ts = (row.get("run_ts") or "").strip()
+            city = (row.get("city") or "").strip()
+            trade_date = (row.get("trade_date") or "").strip()
+            if not (run_ts and city and trade_date):
+                continue
+            try:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM bandit_rewards br
+                    JOIN cities c ON br.city_id = c.id
+                    WHERE br.run_ts = %s
+                      AND c.code = %s
+                      AND br.trade_date = %s
+                    LIMIT 1
+                    """,
+                    (run_ts, city, trade_date),
+                )
+                if cur.fetchone():
+                    continue
+                db.insert_bandit_reward_row(row)
+                inserted += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"[migrate] bandit_rewards: skipping malformed row (seen={seen}): {e}")
+                continue
+    print(f"[migrate] bandit_rewards: {inserted} inserted (rows seen={seen})")
+
+
+def migrate_bandit_state_snapshots(path: str) -> None:
+    if not _file_exists(path):
+        print(f"[migrate] bandit_state_snapshots: missing {path}, skipping")
+        return
+    conn = _get_conn()
+    cur = conn.cursor()
+    inserted = 0
+    seen = 0
+    with open(path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            seen += 1
+            run_ts = (row.get("run_ts") or "").strip()
+            state_path = (row.get("state_path") or "").strip()
+            if not run_ts:
+                continue
+            try:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM bandit_state_snapshots bss
+                    WHERE bss.run_ts = %s
+                      AND COALESCE(bss.state_path, '') = %s
+                    LIMIT 1
+                    """,
+                    (run_ts, state_path),
+                )
+                if cur.fetchone():
+                    continue
+                db.insert_bandit_state_snapshot_row(row)
+                inserted += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"[migrate] bandit_state_snapshots: skipping malformed row (seen={seen}): {e}")
+                continue
+    print(f"[migrate] bandit_state_snapshots: {inserted} inserted (rows seen={seen})")
+
+
 if __name__ == "__main__":
     args = _parse_args()
     # Ensure we can connect before doing any I/O.
@@ -464,4 +655,7 @@ if __name__ == "__main__":
     migrate_daily_metrics(args.daily_metrics)
     migrate_source_performance(args.source_performance)
     migrate_weights_history(args.weights_history)
-
+    migrate_context_features(args.context_features)
+    migrate_bandit_decisions(args.bandit_decisions)
+    migrate_bandit_rewards(args.bandit_rewards)
+    migrate_bandit_state_snapshots(args.bandit_state_snapshots)

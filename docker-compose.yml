@@ -32,6 +32,14 @@ services:
       # Optional: calibration window (days)
       WT_WINDOW_DAYS: "14"
 
+      # Contextual-bandit controls (safe default = off).
+      WT_BANDIT_MODE: "off"          # off | shadow | canary
+      WT_BANDIT_CANARY_CITY: "ny"
+      WT_BANDIT_ALPHA: "0.7"
+      WT_BANDIT_EPSILON_SHADOW: "0.15"
+      WT_BANDIT_EPSILON_CANARY: "0.05"
+      WT_BANDIT_LAMBDA: "1.0"
+
       # Container timezone (cron schedule uses this). Change as desired.
       TZ: America/New_York
 

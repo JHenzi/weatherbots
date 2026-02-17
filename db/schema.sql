@@ -208,6 +208,105 @@ CREATE TABLE IF NOT EXISTS weights_history (
 CREATE INDEX IF NOT EXISTS idx_weights_history_asof_city
     ON weights_history (as_of, city_id);
 
+-- Context features emitted during intraday runs for contextual bandits.
+CREATE TABLE IF NOT EXISTS context_features (
+    id                    BIGSERIAL PRIMARY KEY,
+    run_ts                TIMESTAMPTZ NOT NULL,
+    decision_role         TEXT,
+    bandit_mode           TEXT,
+    city_id               INTEGER REFERENCES cities(id),
+    trade_date            DATE NOT NULL,
+    provider_count        INTEGER,
+    spread_f              DOUBLE PRECISION,
+    condition_token       TEXT,
+    condition_label       TEXT,
+    sky_label             TEXT,
+    mean_cloud_cover      DOUBLE PRECISION,
+    vote_entropy          DOUBLE PRECISION,
+    raw_provider_labels   JSONB,
+    token_weights         JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_features_date_city
+    ON context_features (trade_date, city_id, run_ts);
+
+-- Bandit mode-selection decisions (selected + applied action and diagnostics).
+CREATE TABLE IF NOT EXISTS bandit_decisions (
+    id                    BIGSERIAL PRIMARY KEY,
+    run_ts                TIMESTAMPTZ NOT NULL,
+    decision_role         TEXT,
+    bandit_mode           TEXT,
+    city_id               INTEGER REFERENCES cities(id),
+    trade_date            DATE NOT NULL,
+    selected_action       TEXT,
+    applied_action        TEXT,
+    action_reason         TEXT,
+    guardrail_reason      TEXT,
+    mode_forecast_pred    DOUBLE PRECISION,
+    mode_blend_pred       DOUBLE PRECISION,
+    mode_lstm_pred        DOUBLE PRECISION,
+    feature_vector        JSONB,
+    feature_map           JSONB,
+    policy_scores         JSONB,
+    condition_token       TEXT,
+    condition_label       TEXT,
+    sky_label             TEXT,
+    mean_cloud_cover      DOUBLE PRECISION,
+    vote_entropy          DOUBLE PRECISION,
+    provider_count        INTEGER,
+    spread_f              DOUBLE PRECISION,
+    raw_provider_labels   JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_bandit_decisions_date_city
+    ON bandit_decisions (trade_date, city_id, run_ts);
+
+-- Bandit rewards computed from settled actuals.
+CREATE TABLE IF NOT EXISTS bandit_rewards (
+    id                    BIGSERIAL PRIMARY KEY,
+    run_ts                TIMESTAMPTZ NOT NULL,
+    trade_date            DATE NOT NULL,
+    city_id               INTEGER REFERENCES cities(id),
+    decision_role         TEXT,
+    bandit_mode           TEXT,
+    actual_tmax           DOUBLE PRECISION,
+    selected_action       TEXT,
+    applied_action        TEXT,
+    mode_forecast_pred    DOUBLE PRECISION,
+    mode_blend_pred       DOUBLE PRECISION,
+    mode_lstm_pred        DOUBLE PRECISION,
+    error_forecast        DOUBLE PRECISION,
+    error_blend           DOUBLE PRECISION,
+    error_lstm            DOUBLE PRECISION,
+    reward_forecast       DOUBLE PRECISION,
+    reward_blend          DOUBLE PRECISION,
+    reward_lstm           DOUBLE PRECISION,
+    reward_chosen         DOUBLE PRECISION,
+    condition_token       TEXT,
+    condition_label       TEXT,
+    sky_label             TEXT,
+    mean_cloud_cover      DOUBLE PRECISION,
+    vote_entropy          DOUBLE PRECISION,
+    provider_count        INTEGER,
+    updated_actions       JSONB,
+    feature_vector        JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_bandit_rewards_date_city
+    ON bandit_rewards (trade_date, city_id, run_ts);
+
+-- Full policy snapshots after nightly reward updates.
+CREATE TABLE IF NOT EXISTS bandit_state_snapshots (
+    id                    BIGSERIAL PRIMARY KEY,
+    run_ts                TIMESTAMPTZ NOT NULL,
+    trade_date            DATE,
+    state_path            TEXT,
+    state_json            JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bandit_state_snapshots_date
+    ON bandit_state_snapshots (trade_date, run_ts);
+
 -- Observation snapshots (observations_history.csv): projected high, delta, time temp will max.
 CREATE TABLE IF NOT EXISTS observations (
     id                   BIGSERIAL PRIMARY KEY,
@@ -226,4 +325,3 @@ CREATE TABLE IF NOT EXISTS observations (
 
 CREATE INDEX IF NOT EXISTS idx_observations_city_observed
     ON observations (city_id, observed_at);
-

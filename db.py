@@ -724,6 +724,290 @@ def insert_weights_history_row(row: Mapping[str, Any]) -> None:
     _with_cursor(_work)
 
 
+def insert_context_feature_row(row: Mapping[str, Any]) -> None:
+    """
+    Mirror of context_features_history.csv writer.
+    """
+
+    def _work(conn, cur) -> None:  # pragma: no cover - small wrapper
+        city_id = _ensure_city_id(cur, row.get("city"))
+        cur.execute(
+            """
+            INSERT INTO context_features (
+                run_ts,
+                decision_role,
+                bandit_mode,
+                city_id,
+                trade_date,
+                provider_count,
+                spread_f,
+                condition_token,
+                condition_label,
+                sky_label,
+                mean_cloud_cover,
+                vote_entropy,
+                raw_provider_labels,
+                token_weights
+            )
+            VALUES (
+                %(run_ts)s,
+                %(decision_role)s,
+                %(bandit_mode)s,
+                %(city_id)s,
+                %(trade_date)s,
+                NULLIF(%(provider_count)s, '')::integer,
+                NULLIF(%(spread_f)s, '')::double precision,
+                %(condition_token)s,
+                %(condition_label)s,
+                %(sky_label)s,
+                NULLIF(%(mean_cloud_cover)s, '')::double precision,
+                NULLIF(%(vote_entropy)s, '')::double precision,
+                %(raw_provider_labels)s,
+                %(token_weights)s
+            )
+            """,
+            {
+                "run_ts": row.get("run_ts"),
+                "decision_role": row.get("decision_role"),
+                "bandit_mode": row.get("bandit_mode"),
+                "city_id": city_id,
+                "trade_date": row.get("trade_date"),
+                "provider_count": row.get("provider_count"),
+                "spread_f": row.get("spread_f"),
+                "condition_token": row.get("condition_token"),
+                "condition_label": row.get("condition_label"),
+                "sky_label": row.get("sky_label"),
+                "mean_cloud_cover": row.get("mean_cloud_cover"),
+                "vote_entropy": row.get("vote_entropy"),
+                "raw_provider_labels": Json(_parse_json_safe(row.get("raw_provider_labels_json") or "{}")),
+                "token_weights": Json(_parse_json_safe(row.get("token_weights_json") or "{}")),
+            },
+        )
+
+    _with_cursor(_work)
+
+
+def insert_bandit_decision_row(row: Mapping[str, Any]) -> None:
+    """
+    Mirror of bandit_decisions_history.csv writer.
+    """
+
+    def _work(conn, cur) -> None:  # pragma: no cover - small wrapper
+        city_id = _ensure_city_id(cur, row.get("city"))
+        cur.execute(
+            """
+            INSERT INTO bandit_decisions (
+                run_ts,
+                decision_role,
+                bandit_mode,
+                city_id,
+                trade_date,
+                selected_action,
+                applied_action,
+                action_reason,
+                guardrail_reason,
+                mode_forecast_pred,
+                mode_blend_pred,
+                mode_lstm_pred,
+                feature_vector,
+                feature_map,
+                policy_scores,
+                condition_token,
+                condition_label,
+                sky_label,
+                mean_cloud_cover,
+                vote_entropy,
+                provider_count,
+                spread_f,
+                raw_provider_labels
+            )
+            VALUES (
+                %(run_ts)s,
+                %(decision_role)s,
+                %(bandit_mode)s,
+                %(city_id)s,
+                %(trade_date)s,
+                %(selected_action)s,
+                %(applied_action)s,
+                %(action_reason)s,
+                %(guardrail_reason)s,
+                NULLIF(%(mode_forecast_pred)s, '')::double precision,
+                NULLIF(%(mode_blend_pred)s, '')::double precision,
+                NULLIF(%(mode_lstm_pred)s, '')::double precision,
+                %(feature_vector)s,
+                %(feature_map)s,
+                %(policy_scores)s,
+                %(condition_token)s,
+                %(condition_label)s,
+                %(sky_label)s,
+                NULLIF(%(mean_cloud_cover)s, '')::double precision,
+                NULLIF(%(vote_entropy)s, '')::double precision,
+                NULLIF(%(provider_count)s, '')::integer,
+                NULLIF(%(spread_f)s, '')::double precision,
+                %(raw_provider_labels)s
+            )
+            """,
+            {
+                "run_ts": row.get("run_ts"),
+                "decision_role": row.get("decision_role"),
+                "bandit_mode": row.get("bandit_mode"),
+                "city_id": city_id,
+                "trade_date": row.get("trade_date"),
+                "selected_action": row.get("selected_action"),
+                "applied_action": row.get("applied_action"),
+                "action_reason": row.get("action_reason"),
+                "guardrail_reason": row.get("guardrail_reason"),
+                "mode_forecast_pred": row.get("mode_forecast_pred"),
+                "mode_blend_pred": row.get("mode_blend_pred"),
+                "mode_lstm_pred": row.get("mode_lstm_pred"),
+                "feature_vector": Json(_parse_json_safe(row.get("feature_vector_json") or "[]")),
+                "feature_map": Json(_parse_json_safe(row.get("feature_map_json") or "{}")),
+                "policy_scores": Json(_parse_json_safe(row.get("policy_scores_json") or "{}")),
+                "condition_token": row.get("condition_token"),
+                "condition_label": row.get("condition_label"),
+                "sky_label": row.get("sky_label"),
+                "mean_cloud_cover": row.get("mean_cloud_cover"),
+                "vote_entropy": row.get("vote_entropy"),
+                "provider_count": row.get("provider_count"),
+                "spread_f": row.get("spread_f"),
+                "raw_provider_labels": Json(_parse_json_safe(row.get("raw_provider_labels_json") or "{}")),
+            },
+        )
+
+    _with_cursor(_work)
+
+
+def insert_bandit_reward_row(row: Mapping[str, Any]) -> None:
+    """
+    Mirror of bandit_rewards_history.csv writer.
+    """
+
+    def _work(conn, cur) -> None:  # pragma: no cover - small wrapper
+        city_id = _ensure_city_id(cur, row.get("city"))
+        cur.execute(
+            """
+            INSERT INTO bandit_rewards (
+                run_ts,
+                trade_date,
+                city_id,
+                decision_role,
+                bandit_mode,
+                actual_tmax,
+                selected_action,
+                applied_action,
+                mode_forecast_pred,
+                mode_blend_pred,
+                mode_lstm_pred,
+                error_forecast,
+                error_blend,
+                error_lstm,
+                reward_forecast,
+                reward_blend,
+                reward_lstm,
+                reward_chosen,
+                condition_token,
+                condition_label,
+                sky_label,
+                mean_cloud_cover,
+                vote_entropy,
+                provider_count,
+                updated_actions,
+                feature_vector
+            )
+            VALUES (
+                %(run_ts)s,
+                %(trade_date)s,
+                %(city_id)s,
+                %(decision_role)s,
+                %(bandit_mode)s,
+                NULLIF(%(actual_tmax)s, '')::double precision,
+                %(selected_action)s,
+                %(applied_action)s,
+                NULLIF(%(mode_forecast_pred)s, '')::double precision,
+                NULLIF(%(mode_blend_pred)s, '')::double precision,
+                NULLIF(%(mode_lstm_pred)s, '')::double precision,
+                NULLIF(%(error_forecast)s, '')::double precision,
+                NULLIF(%(error_blend)s, '')::double precision,
+                NULLIF(%(error_lstm)s, '')::double precision,
+                NULLIF(%(reward_forecast)s, '')::double precision,
+                NULLIF(%(reward_blend)s, '')::double precision,
+                NULLIF(%(reward_lstm)s, '')::double precision,
+                NULLIF(%(reward_chosen)s, '')::double precision,
+                %(condition_token)s,
+                %(condition_label)s,
+                %(sky_label)s,
+                NULLIF(%(mean_cloud_cover)s, '')::double precision,
+                NULLIF(%(vote_entropy)s, '')::double precision,
+                NULLIF(%(provider_count)s, '')::integer,
+                %(updated_actions)s,
+                %(feature_vector)s
+            )
+            """,
+            {
+                "run_ts": row.get("run_ts"),
+                "trade_date": row.get("trade_date"),
+                "city_id": city_id,
+                "decision_role": row.get("decision_role"),
+                "bandit_mode": row.get("bandit_mode"),
+                "actual_tmax": row.get("actual_tmax"),
+                "selected_action": row.get("selected_action"),
+                "applied_action": row.get("applied_action"),
+                "mode_forecast_pred": row.get("mode_forecast_pred"),
+                "mode_blend_pred": row.get("mode_blend_pred"),
+                "mode_lstm_pred": row.get("mode_lstm_pred"),
+                "error_forecast": row.get("error_forecast"),
+                "error_blend": row.get("error_blend"),
+                "error_lstm": row.get("error_lstm"),
+                "reward_forecast": row.get("reward_forecast"),
+                "reward_blend": row.get("reward_blend"),
+                "reward_lstm": row.get("reward_lstm"),
+                "reward_chosen": row.get("reward_chosen"),
+                "condition_token": row.get("condition_token"),
+                "condition_label": row.get("condition_label"),
+                "sky_label": row.get("sky_label"),
+                "mean_cloud_cover": row.get("mean_cloud_cover"),
+                "vote_entropy": row.get("vote_entropy"),
+                "provider_count": row.get("provider_count"),
+                "updated_actions": Json(_parse_json_safe(row.get("updated_actions_json") or "[]")),
+                "feature_vector": Json(_parse_json_safe(row.get("feature_vector_json") or "[]")),
+            },
+        )
+
+    _with_cursor(_work)
+
+
+def insert_bandit_state_snapshot_row(row: Mapping[str, Any]) -> None:
+    """
+    Mirror of bandit_state_snapshots.csv writer.
+    """
+
+    def _work(conn, cur) -> None:  # pragma: no cover - small wrapper
+        cur.execute(
+            """
+            INSERT INTO bandit_state_snapshots (
+                run_ts,
+                trade_date,
+                state_path,
+                state_json
+            )
+            VALUES (
+                %(run_ts)s,
+                NULLIF(%(trade_date)s, '')::date,
+                %(state_path)s,
+                %(state_json)s
+            )
+            """,
+            {
+                "run_ts": row.get("run_ts"),
+                "trade_date": row.get("trade_date"),
+                "state_path": row.get("state_path"),
+                "state_json": Json(_parse_json_safe(row.get("state_json") or "{}")),
+            },
+        )
+
+    _with_cursor(_work)
+
+
 # --- Read helpers (used when ENABLE_PG_READ=true; return CSV-like shapes) ---
 
 
@@ -1035,4 +1319,3 @@ def _coerce_bool(x: Any) -> Optional[bool]:
     if s in ("0", "false", "no", "n"):
         return False
     return None
-

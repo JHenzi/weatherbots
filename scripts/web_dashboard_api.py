@@ -24,6 +24,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
+from context_correlation_report import build_report as build_context_correlation_report
 
 try:
     import db
@@ -218,6 +219,9 @@ PREDICTIONS_LATEST = DATA_DIR / "predictions_latest.csv"
 INTRADAY_CSV = DATA_DIR / "intraday_forecasts.csv"
 SOURCE_PERFORMANCE_CSV = DATA_DIR / "source_performance.csv"
 EVAL_HISTORY_CSV = DATA_DIR / "eval_history.csv"
+CONTEXT_FEATURES_CSV = DATA_DIR / "context_features_history.csv"
+BANDIT_DECISIONS_CSV = DATA_DIR / "bandit_decisions_history.csv"
+BANDIT_REWARDS_CSV = DATA_DIR / "bandit_rewards_history.csv"
 DASHBOARD_HTML_PATH = Path(__file__).resolve().parent / "dashboard_web.html"
 MARKETS_HTML_PATH = Path(__file__).resolve().parent / "markets_web.html"
 ANALYTICS_HTML_PATH = Path(__file__).resolve().parent / "analytics_web.html"
@@ -532,6 +536,29 @@ async def get_analytics_lock_in():
         for (c, b), v in sorted(by_city_trend.items())
     ]
     return {"by_city_hour": by_city_hour_list, "by_city_trend_bucket": by_city_trend_list}
+
+
+@app.get("/api/analytics/context_correlation")
+async def get_analytics_context_correlation(min_samples: int = 3):
+    rows = read_csv(BANDIT_REWARDS_CSV) if BANDIT_REWARDS_CSV.exists() else []
+    report = build_context_correlation_report(rows, min_samples=max(1, int(min_samples)))
+    report["decisions_logged"] = len(read_csv(BANDIT_DECISIONS_CSV)) if BANDIT_DECISIONS_CSV.exists() else 0
+    report["context_rows"] = len(read_csv(CONTEXT_FEATURES_CSV)) if CONTEXT_FEATURES_CSV.exists() else 0
+    return report
+
+
+@app.get("/api/analytics/bandit_performance")
+async def get_analytics_bandit_performance(min_samples: int = 3):
+    rows = read_csv(BANDIT_REWARDS_CSV) if BANDIT_REWARDS_CSV.exists() else []
+    report = build_context_correlation_report(rows, min_samples=max(1, int(min_samples)))
+    return {
+        "overall": report.get("bandit_performance_overall") or {},
+        "by_city": report.get("bandit_performance_by_city") or [],
+        "rows_scanned": report.get("rows_scanned") or 0,
+        "min_samples": report.get("min_samples") or max(1, int(min_samples)),
+        "decisions_logged": len(read_csv(BANDIT_DECISIONS_CSV)) if BANDIT_DECISIONS_CSV.exists() else 0,
+        "context_rows": len(read_csv(CONTEXT_FEATURES_CSV)) if CONTEXT_FEATURES_CSV.exists() else 0,
+    }
 
 
 # Kalshi series tickers (same defaults as kalshi_trader) for at-risk bracket suggestions

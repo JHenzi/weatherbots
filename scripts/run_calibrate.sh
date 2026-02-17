@@ -20,4 +20,4 @@ PY
 )"
 
 python calibrate_sources.py --trade-date "$TRADE_DATE" --window-days "$WINDOW_DAYS"
-
+python bandit_update.py --trade-date "$TRADE_DATE"

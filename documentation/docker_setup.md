@@ -57,7 +57,7 @@ Optional: enable “run once on startup” by adding to `docker-compose.yml` env
 - Container logs: `docker logs -f weather-trader`
 - Cron logs (persisted in `Data/`): `Data/logs/trade.cron.log`, `Data/logs/calibrate.cron.log`, `Data/logs/settle.cron.log`
 - Decisions/trades/eval CSVs: `Data/decisions_history.csv`, `Data/trades_history.csv`, `Data/eval_history.csv`
-- Learning + rollups: `Data/source_performance.csv`, `Data/weights.json`, `Data/weights_history.csv`, `Data/daily_metrics.csv`
+- Learning + rollups: `Data/source_performance.csv`, `Data/weights.json`, `Data/weights_history.csv`, `Data/daily_metrics.csv`, `Data/context_features_history.csv`, `Data/bandit_decisions_history.csv`, `Data/bandit_rewards_history.csv`, `Data/bandit_state.json`
 
 ## 5) Data persistence and risk of data loss
 
