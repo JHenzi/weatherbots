@@ -1,65 +1,58 @@
 {
   "fl": {
-    "as_of": "2026-02-06",
+    "as_of": "2026-02-15",
     "weights": {
-      "consensus": 0.11348518161649444,
-      "google-weather": 0.009144774271688616,
-      "lstm": 0.019908833012154483,
-      "open-meteo": 0.005781697813827406,
-      "openweathermap": 0.028123411242948537,
-      "pirateweather": 0.05402058366953858,
-      "tomorrow": 0.04769823194931713,
-      "visual-crossing": 0.530342796667575,
-      "weather.gov": 0.004933436160961881,
-      "weatherapi": 0.1865610535954939
+      "consensus": 0.23581326386214668,
+      "google-weather": 0.0011046993788956887,
+      "open-meteo": 0.028019389641269484,
+      "openweathermap": 0.0015696587453531451,
+      "pirateweather": 0.008369602423690644,
+      "tomorrow": 0.008381049989354199,
+      "visual-crossing": 0.6586743570399443,
+      "weather.gov": 0.0008855510800203691,
+      "weatherapi": 0.057182427839325485
     },
     "window_days": 14
   },
   "il": {
-    "as_of": "2026-02-06",
+    "as_of": "2026-02-15",
     "weights": {
-      "consensus": 0.02266547121206415,
-      "google-weather": 0.01295860174427759,
-      "lstm": 0.002734489965887816,
-      "open-meteo": 0.06259646758250784,
-      "openweathermap": 0.05938214360317892,
-      "pirateweather": 0.08574656250926453,
-      "tomorrow": 0.20324452918289104,
-      "visual-crossing": 0.49219758643917394,
-      "weather.gov": 0.0035963477548250156,
-      "weatherapi": 0.054877800005929324
+      "consensus": 0.20268813968064514,
+      "google-weather": 0.0011547992786766757,
+      "open-meteo": 0.111954031845199,
+      "pirateweather": 0.02476568620248588,
+      "tomorrow": 0.20150178103072058,
+      "visual-crossing": 0.44781612738079685,
+      "weather.gov": 0.0005649685383809207,
+      "weatherapi": 0.009554466043094892
     },
     "window_days": 14
   },
   "ny": {
-    "as_of": "2026-02-06",
+    "as_of": "2026-02-15",
     "weights": {
-      "consensus": 0.051793706925004804,
-      "google-weather": 0.01824140429257803,
-      "lstm": 0.002585809486579804,
-      "open-meteo": 0.013421629292520859,
-      "openweathermap": 0.063723690194853,
-      "pirateweather": 0.03835366140571551,
-      "tomorrow": 0.2566461170616602,
-      "visual-crossing": 0.4607604599973201,
-      "weather.gov": 0.0032508783036338954,
-      "weatherapi": 0.09122264304013385
+      "consensus": 0.26268764856009685,
+      "google-weather": 0.0009245213853109665,
+      "open-meteo": 0.15055724484111307,
+      "pirateweather": 0.009555526195663865,
+      "tomorrow": 0.10562873690218794,
+      "visual-crossing": 0.46108156232590936,
+      "weather.gov": 0.0003440694299712198,
+      "weatherapi": 0.009220690359746781
     },
     "window_days": 14
   },
   "tx": {
-    "as_of": "2026-02-06",
+    "as_of": "2026-02-15",
     "weights": {
-      "consensus": 0.14557494141406285,
-      "google-weather": 0.003931338257029406,
-      "lstm": 0.0024814710349622426,
-      "open-meteo": 0.009301042183953117,
-      "openweathermap": 0.010332091719225275,
-      "pirateweather": 0.024459448985270294,
-      "tomorrow": 0.0830119108526547,
-      "visual-crossing": 0.6726879419490523,
-      "weather.gov": 0.0014923142673596054,
-      "weatherapi": 0.046727499336430306
+      "consensus": 0.23511532140651423,
+      "google-weather": 0.0010325098385744304,
+      "open-meteo": 0.059172975656706275,
+      "pirateweather": 0.05173847772080591,
+      "tomorrow": 0.15296802325122358,
+      "visual-crossing": 0.46668164391364436,
+      "weather.gov": 0.0003978318665149079,
+      "weatherapi": 0.032893216346016114
     },
     "window_days": 14
   }
