@@ -1,5 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import tempfile
+import threading
 import unittest
 
 import numpy as np
@@ -39,6 +41,33 @@ class BanditPolicyTests(unittest.TestCase):
             path = f"{td}/bandit_state.json"
             p, state = load_policy_state(path, alpha=0.7, reg_lambda=1.0, epsilon=0.1)
             save_policy_state(path, p, state)
+            p2, state2 = load_policy_state(path, alpha=0.7, reg_lambda=1.0, epsilon=0.1)
+            self.assertEqual(p2.feature_dim, p.feature_dim)
+            self.assertIn("policy", state2)
+
+    def test_state_save_is_race_safe(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = f"{td}/bandit_state.json"
+            p, state = load_policy_state(path, alpha=0.7, reg_lambda=1.0, epsilon=0.1)
+            start = threading.Barrier(6)
+            errors = []
+            lock = threading.Lock()
+
+            def worker() -> None:
+                try:
+                    start.wait(timeout=5.0)
+                    for _ in range(80):
+                        save_policy_state(path, p, state)
+                except Exception as e:  # pragma: no cover - only on failure
+                    with lock:
+                        errors.append(repr(e))
+
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futures = [ex.submit(worker) for _ in range(6)]
+                for fut in futures:
+                    fut.result(timeout=20.0)
+
+            self.assertEqual(errors, [])
             p2, state2 = load_policy_state(path, alpha=0.7, reg_lambda=1.0, epsilon=0.1)
             self.assertEqual(p2.feature_dim, p.feature_dim)
             self.assertIn("policy", state2)

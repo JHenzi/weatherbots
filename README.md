@@ -1,12 +1,91 @@
-## Weather-trader (operational)
+## The Ultimate Kalshi Weather Market Prediction Engine
 
-This repo predicts **daily maximum temperature** for 4 locations and maps the prediction into Kalshi "high temperature" markets for automated (or dry-run) trading.
+Weather Trader is a weather-intelligence + execution system for Kalshi daily high-temperature markets.
 
-![Next trade — predictions, confidence, sources & weights.](Forecasts.png)
+It does more than predict a number. It tries to answer:
+**which forecaster is right, for this city, in this regime, and why** - then sizes and executes market decisions with guardrails.
+
+![Next trade view: prediction, confidence, source set, and weights.](Forecasts.png)
+
+### What makes it different
+
+- **Forecast selection, not just forecasting**: multiple providers are scored continuously against realized truth and reweighted nightly.
+- **Reasoned confidence**: confidence is derived from disagreement among reliable sources and weighted source quality, not a single model probability.
+- **Context-aware mode selection**: optional contextual bandit learns when to trust forecast consensus vs blend vs LSTM.
+- **Execution-grade pipeline**: intraday refresh, local-time trade gates, EV-aware market selection, budgeting, idempotency, and settlement feedback.
+- **Operational visibility**: live dashboard + analytics + notifications so you can see what the bot believes and why.
 
 ### Inspiration and origin
 
-Inspired by the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo (Kalshi Weather Prediction Common Task, BU CS542 Spring 2024). It reuses LSTM models, data pipeline (Open-Meteo, Visual Crossing, Meteostat, NOAA NCEI), and Kalshi trading, while adding provider-forecast blending, calibration, Docker scheduling, and richer operational tooling. Mapping: data fetching → `data_fetcher_new.ipynb` / `daily_prediction.py`; training → `train_models.py`; prediction → `daily_prediction.py` / `intraday_pulse.py`; trading → `kalshi_trader.py`. Models: `Data/model_<city>.keras`; cleaned data: `Data/prediction_data_cleaned_<city>.pkl`.
+Inspired by the [LSTM-Automated-Trading-System](https://github.com/pranavgoyanka/LSTM-Automated-Trading-System) repo (Kalshi Weather Prediction Common Task, BU CS542 Spring 2024). This repo reuses core dataset/model foundations and extends them with provider blending, calibration, intraday updates, contextual-bandit experimentation, scheduling, and production-oriented observability.
+
+---
+
+## Quick start
+
+Use Docker. From the repo root:
+
+1. **Secrets:** Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. Mount your Kalshi private key (see [Docker setup](documentation/docker_setup.md)).
+2. **Run:**
+   ```bash
+   docker compose up -d --build
+   ```
+3. **Dashboard:** Open **http://localhost:8080** for the web UI (cron, trades, and dashboard all run in the container).
+
+> [!IMPORTANT]
+> **Next:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands) · [Environment variables](documentation/environment_variables.md)
+
+Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if keys were exposed.
+
+**Without Docker:** Install deps with `pip install -r requirements.txt` (e.g. in a venv), configure `.env`, then run scripts manually (e.g. `python scripts/web_dashboard_api.py` for the dashboard). Cron and scheduling are up to you.
+
+---
+
+## Cities / coordinates
+
+| City               | Code | Lat/Lon             |
+| ------------------ | ---- | ------------------- |
+| NYC (Central Park) | `ny` | 40.79736, -73.97785 |
+| Chicago (Midway)   | `il` | 41.78701, -87.77166 |
+| Austin (Bergstrom) | `tx` | 30.14440, -97.66876 |
+| Miami              | `fl` | 25.77380, -80.19360 |
+
+## Features
+
+- **Forecast intelligence**
+  - Multi-source weather forecasts: Open-Meteo, Visual Crossing, Tomorrow.io, WeatherAPI, OpenWeatherMap, Pirate Weather, NWS (+ optional LSTM signal).
+  - Nightly calibration updates per-source MAE and writes learned weights to `Data/weights.json`.
+  - Consensus prediction is MAE-weighted, with source-level explainability (`sources_used`, `weights_used`, spread, confidence).
+
+- **Contextual learning (optional)**
+  - Contextual-bandit mode (`off`/`shadow`/`canary`) can select among `forecast`/`blend`/`lstm`.
+  - Context features include sky/condition votes, cloud cover, spread, provider count, and city/date features.
+  - Full decision and reward telemetry is logged for post-settlement learning.
+
+- **Trading and risk pipeline**
+  - Intraday pulse refreshes forecasts and writes `predictions_latest.csv`.
+  - Trade windows run at city-local 13:00 (ny/fl at 13:00 ET; il/tx at 14:00 ET).
+  - EV-aware bucket selection using live orderbook snapshots, with confidence/spread guardrails and budget controls.
+  - Idempotent execution and nightly settlement rollups close the loop.
+
+- **Dashboard + analytics + notifications**
+  - **Web dashboard (`/`)**: live observations, projected highs, next-trade table, positions, and risk/sell advisor.
+  - **Analytics page (`/analytics`)**: source MAE, projection-vs-actual performance, lock-in timing analysis, contextual-bandit performance.
+  - **Desktop notifications (browser permission-based)**: urgent risk and at-risk bracket opportunities.
+  - **Terminal dashboard (TUI)**: operational snapshot directly in shell.
+
+## Measurements (what we track)
+
+| Artifact                                                                                                    | Purpose                                                |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `Data/source_performance.csv`                                                                               | Per-source prediction error vs NWS actual              |
+| `Data/daily_metrics.csv`                                                                                    | Rollups for allocation and scoring                     |
+| `Data/eval_history.csv`                                                                                     | Per-trade outcome and market state                     |
+| `Data/city_metadata.json`                                                                                   | Per-city historical MAE (used for σ)                   |
+| `Data/context_features_history.csv`, `Data/bandit_decisions_history.csv`, `Data/bandit_rewards_history.csv` | Contextual-bandit telemetry and settled reward updates |
+
+> [!NOTE]
+> **Schemas and key fields:** [Data reference](documentation/data_reference.md)
 
 ---
 
@@ -68,59 +147,6 @@ Visit these dedicated pages for full details — each link opens a dedicated doc
 > [!CAUTION]
 > **Secrets and key rotation**
 > **[→ Open SECURITY.md](SECURITY.md)** — Purging history, rotating keys, deleting cache files.
-
----
-
-## Quick start
-
-Use Docker. From the repo root:
-
-1. **Secrets:** Copy `.env.example` → `.env` and fill in values. Minimum for trading: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`. Mount your Kalshi private key (see [Docker setup](documentation/docker_setup.md)).
-2. **Run:**
-   ```bash
-   docker compose up -d --build
-   ```
-3. **Dashboard:** Open **http://localhost:8080** for the web UI (cron, trades, and dashboard all run in the container).
-
-> [!IMPORTANT]
-> **Next:** [Docker setup](documentation/docker_setup.md) (mount key, logs, schedule) · [Operational runbook](documentation/operational_runbook.md) (budget, live trading, commands) · [Environment variables](documentation/environment_variables.md)
-
-Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if keys were exposed.
-
-**Without Docker:** Install deps with `pip install -r requirements.txt` (e.g. in a venv), configure `.env`, then run scripts manually (e.g. `python scripts/web_dashboard_api.py` for the dashboard). Cron and scheduling are up to you.
-
----
-
-## Cities / coordinates
-
-| City | Code | Lat/Lon |
-|------|------|---------|
-| NYC (Central Park) | `ny` | 40.79736, -73.97785 |
-| Chicago (Midway) | `il` | 41.78701, -87.77166 |
-| Austin (Bergstrom) | `tx` | 30.14440, -97.66876 |
-| Miami | `fl` | 25.77380, -80.19360 |
-
-## Features
-
-- **Prediction modes**: LSTM-only, provider-forecast-only, or blended. Multiple providers: Open-Meteo, Visual Crossing, Tomorrow.io, WeatherAPI, OpenWeatherMap, Pirate Weather, NWS.
-- **Calibration**: Nightly job updates per-source MAE and writes `Data/weights.json`; consensus is MAE-weighted (or equal) across providers.
-- **Contextual bandit (optional)**: Logs weather-context features (`sunny`/`mixed`/`cloudy` + condition text vote), selects mode (`forecast`/`blend`/`lstm`) in shadow/canary modes, and updates LinUCB state nightly from settled outcomes.
-- **Intraday pulse**: Cron runs prediction snapshots and writes `predictions_latest.csv`; trade job runs at 13:00 local per city (ny/fl at 13:00 ET, il/tx at 14:00 ET).
-- **Trading**: Orderbook-aware selection (EV-based), per-city sigma, budget allocation by confidence and historical MAE/hit-rate.
-- **Dashboard**: Web and TUI — live NWS observations, next-trade predictions, Risk/Sell advisor, positions, analytics.
-
-## Measurements (what we track)
-
-| Artifact | Purpose |
-|----------|---------|
-| `Data/source_performance.csv` | Per-source prediction error vs NWS actual |
-| `Data/daily_metrics.csv` | Rollups for allocation and scoring |
-| `Data/eval_history.csv` | Per-trade outcome and market state |
-| `Data/city_metadata.json` | Per-city historical MAE (used for σ) |
-| `Data/context_features_history.csv`, `Data/bandit_decisions_history.csv`, `Data/bandit_rewards_history.csv` | Contextual-bandit telemetry and settled reward updates |
-
-> [!NOTE]
-> **Schemas and key fields:** [Data reference](documentation/data_reference.md)
 
 ---
 

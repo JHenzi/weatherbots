@@ -161,16 +161,9 @@ def _confidence_from_spread(spread_f: float) -> float:
     return float((3.0 - float(spread_f)) / (3.0 - 1.5))
 
 
-def _skill_from_weights(weights_used: dict[str, float]) -> float:
+def _entropy_skill_from_weights(weights_used: dict[str, float]) -> float:
     """
-    Derive a per-city skill factor from the learned weights.
-
-    Mirrors run_daily._skill_from_weights:
-    - Interpret weights as a probability distribution over providers.
-    - Use normalized Shannon entropy to capture how many competent sources
-      contribute meaningfully to the ensemble:
-        * High entropy (diversified, multiple good sources) → skill_conf ~ 1.0
-        * Low entropy (one dominant source) → skill_conf ~ 0.0
+    Distribution-shape confidence from provider weights.
     """
     if not weights_used:
         return 0.5
@@ -189,8 +182,70 @@ def _skill_from_weights(weights_used: dict[str, float]) -> float:
     if H_max <= 0:
         return 0.5
 
-    entropy_norm = max(0.0, min(1.0, H / H_max))
-    return float(entropy_norm)
+    return float(max(0.0, min(1.0, H / H_max)))
+
+
+def _mae_to_skill(mae_f: float) -> float:
+    """
+    Map expected MAE to [0,1] quality:
+    - <=0.8F -> 1.0 (high skill)
+    - >=4.0F -> 0.0 (low skill)
+    """
+    mae = float(mae_f)
+    if mae <= 0.8:
+        return 1.0
+    if mae >= 4.0:
+        return 0.0
+    return float((4.0 - mae) / (4.0 - 0.8))
+
+
+def _quality_skill_from_weights(
+    weights_used: dict[str, float],
+    mae_map: dict[str, float] | None,
+    *,
+    neutral: float = 0.7,
+) -> float:
+    """
+    MAE-aware confidence that downweights poor sources proportional to their weight.
+    """
+    if not weights_used:
+        return float(max(0.0, min(1.0, neutral)))
+    if not mae_map:
+        return float(max(0.0, min(1.0, neutral)))
+
+    known: list[tuple[float, float]] = []
+    for src, w in weights_used.items():
+        if src not in mae_map:
+            continue
+        ww = max(0.0, float(w))
+        if ww <= 0.0:
+            continue
+        mae_safe = max(0.01, float(mae_map[src]))
+        known.append((ww, mae_safe))
+
+    coverage = sum(w for w, _ in known)
+    if coverage <= 1e-9:
+        return float(max(0.0, min(1.0, neutral)))
+
+    weighted_quality = sum((w / coverage) * _mae_to_skill(mae) for w, mae in known)
+    blended = coverage * weighted_quality + (1.0 - coverage) * neutral
+    return float(max(0.0, min(1.0, blended)))
+
+
+def _skill_from_weights(
+    weights_used: dict[str, float],
+    mae_map: dict[str, float] | None = None,
+    *,
+    entropy_blend: float = 0.75,
+) -> float:
+    """
+    Blend distribution shape with MAE-aware quality.
+    This reduces the effect of low-weight poor sources without over-trusting single-source setups.
+    """
+    ent = _entropy_skill_from_weights(weights_used)
+    qual = _quality_skill_from_weights(weights_used, mae_map, neutral=0.7)
+    a = max(0.0, min(1.0, float(entropy_blend)))
+    return float((a * ent) + ((1.0 - a) * qual))
 
 
 def _load_weights(path: str) -> dict:
@@ -1308,7 +1363,7 @@ if __name__ == "__main__":
                 bonus = 0.0
             spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
             spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
-            skill_conf = _skill_from_weights(weights_used)
+            skill_conf = _skill_from_weights(weights_used, mae_map=mae_map)
             conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
 
             context_vote = vote_provider_conditions(

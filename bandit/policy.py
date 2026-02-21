@@ -3,6 +3,7 @@ import json
 import math
 import os
 import random
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -250,7 +251,19 @@ def save_policy_state(path: str, policy: LinUCBPolicy, state: Mapping[str, Any])
     md["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     out["metadata"] = md
 
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(out, f, indent=2, sort_keys=True)
-    os.replace(tmp, path)
+    # Use a per-writer temp file to avoid collisions when concurrent jobs save state.
+    # os.replace keeps the final write atomic.
+    parent = os.path.dirname(path) or "."
+    base = os.path.basename(path)
+    fd, tmp = tempfile.mkstemp(prefix=f".{base}.", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(out, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
