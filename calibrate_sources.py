@@ -57,9 +57,27 @@ def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
     return by_city
 
 
-def _append_performance_rows(perf_path: str, rows: list[dict]) -> None:
+def _load_existing_performance_keys(perf_path: str) -> set[tuple[str, str, str]]:
+    keys: set[tuple[str, str, str]] = set()
+    if not os.path.exists(perf_path):
+        return keys
+    with open(perf_path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            d = (row.get("date") or "").strip()
+            city = (row.get("city") or "").strip()
+            source = (row.get("source_name") or "").strip()
+            if d and city and source:
+                keys.add((d, city, source))
+    return keys
+
+
+def _append_performance_rows(perf_path: str, rows: list[dict]) -> tuple[int, int]:
     os.makedirs(os.path.dirname(perf_path) or ".", exist_ok=True)
     write_header = not os.path.exists(perf_path)
+    existing_keys = _load_existing_performance_keys(perf_path)
+    written = 0
+    skipped_existing = 0
     with open(perf_path, "a", newline="") as f:
         w = csv.DictWriter(
             f,
@@ -75,9 +93,20 @@ def _append_performance_rows(perf_path: str, rows: list[dict]) -> None:
         if write_header:
             w.writeheader()
         for row in rows:
+            key = (
+                (row.get("date") or "").strip(),
+                (row.get("city") or "").strip(),
+                (row.get("source_name") or "").strip(),
+            )
+            if key in existing_keys:
+                skipped_existing += 1
+                continue
             w.writerow(row)
+            existing_keys.add(key)
+            written += 1
             if db is not None:
                 db.insert_source_performance_row(row)  # type: ignore[attr-defined]
+    return written, skipped_existing
 
 
 def _load_performance_window(perf_path: str, *, city: str, source: str, start: dt.date, end: dt.date) -> list[float]:
@@ -223,7 +252,7 @@ if __name__ == "__main__":
                 }
             )
 
-    _append_performance_rows(args.performance_csv, perf_rows)
+    rows_written, rows_skipped_existing = _append_performance_rows(args.performance_csv, perf_rows)
 
     if not perf_rows:
         # Bootstrap mode: don't block the system. We just didn't have CLI truth yet.
@@ -240,6 +269,7 @@ if __name__ == "__main__":
         json.dump(weights, f, indent=2, sort_keys=True)
     _append_weights_history("Data/weights_history.csv", weights)
 
-    print(f"Wrote {len(perf_rows)} rows to {args.performance_csv}")
+    print(f"Wrote {rows_written} rows to {args.performance_csv}")
+    if rows_skipped_existing > 0:
+        print(f"Skipped {rows_skipped_existing} duplicate rows already present in {args.performance_csv}")
     print(f"Wrote weights to {args.weights_json}")
-

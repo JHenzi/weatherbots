@@ -26,7 +26,9 @@ class CliTruth:
 
 
 _SUMMARY_RE = re.compile(r"SUMMARY FOR ([A-Z]+) (\d{1,2}) (\d{4})", re.IGNORECASE)
-_MAX_RE = re.compile(r"^MAXIMUM\s+(-?\d+)\b", re.IGNORECASE)
+# Some CLI rows annotate values with a trailing quality/record flag (e.g., "65R").
+# Capture the numeric part so these still count as valid observed maxima.
+_MAX_RE = re.compile(r"^MAXIMUM\s+(-?\d+)", re.IGNORECASE)
 _PRE_RE = re.compile(r"<pre[^>]*>([\s\S]*?)</pre>", re.IGNORECASE)
 _ISSUED_RE = re.compile(
     r"\b(\d{1,4}\s*(AM|PM)\s+[A-Z]{2,5}\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{4})\b",
@@ -182,4 +184,3 @@ def get_actual_tmax_from_nws_cli(
             )
 
         time.sleep(max(5, int(retry_every_seconds)))
-

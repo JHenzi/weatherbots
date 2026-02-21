@@ -33,7 +33,7 @@ services:
       WT_WINDOW_DAYS: "14"
 
       # Contextual-bandit controls (safe default = off).
-      WT_BANDIT_MODE: "off"          # off | shadow | canary
+      WT_BANDIT_MODE: "canary"          # off | shadow | canary
       WT_BANDIT_CANARY_CITY: "ny"
       WT_BANDIT_ALPHA: "0.7"
       WT_BANDIT_EPSILON_SHADOW: "0.15"
