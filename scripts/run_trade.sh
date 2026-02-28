@@ -15,6 +15,7 @@ WT_DAILY_BUDGET="${WT_DAILY_BUDGET:-50}"
 WT_ENV="${WT_ENV:-demo}"
 WT_SEND_ORDERS="${WT_SEND_ORDERS:-false}"
 WT_MAX_CONTRACTS_PER_ORDER="${WT_MAX_CONTRACTS_PER_ORDER:-500}"
+WT_BANDIT_MODE="${WT_BANDIT_MODE:-live}"
 
 # Trade on **today's** markets using freshly-updated weights (truth for yesterday arrives ~06:30).
 TRADE_DATE="$(python - <<'PY'
@@ -36,6 +37,7 @@ python intraday_pulse.py \
   --trade-date "$TRADE_DATE" \
   --env "$WT_ENV" \
   --decision-role trade \
+  --bandit-mode "$WT_BANDIT_MODE" \
   --write-predictions
 
 # Execute trades from the latest intraday-based predictions (kalshi_trader enforces additional gates).

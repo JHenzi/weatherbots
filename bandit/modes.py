@@ -1,54 +1,38 @@
 from typing import Any
 
-_LSTM_CACHE: dict[str, float | None] = {}
-
-
-def get_lstm_prediction(city: str) -> float | None:
-    key = str(city or "").strip().lower()
-    if not key:
-        return None
-    if key in _LSTM_CACHE:
-        return _LSTM_CACHE[key]
-
-    try:
-        from daily_prediction import getPrediction  # lazy import to avoid startup overhead
-
-        v = getPrediction(key)
-        out = None if v is None else float(v)
-    except Exception:
-        out = None
-
-    _LSTM_CACHE[key] = out
-    return out
-
 
 def compute_candidate_mode_predictions(
     *,
     city: str,
     forecast_pred: float | None,
-    blend_forecast_weight: float = 0.8,
-    known_lstm_pred: float | None = None,
+    bias_correction_f: float = 0.0,
 ) -> dict[str, Any]:
+    """
+    Compute candidate predictions for each bandit action.
+
+    Actions:
+      - forecast: raw weighted-ensemble mean (no correction)
+      - blend:    forecast + bias_correction_f (calibrated to remove systematic cold bias)
+
+    LSTM has been retired — it was 20-35°F off due to stale training data.
+    """
     forecast_val = None if forecast_pred is None else float(forecast_pred)
-    lstm_val = known_lstm_pred
-    if lstm_val is None:
-        lstm_val = get_lstm_prediction(city)
 
     blend_val = None
-    if forecast_val is not None and lstm_val is not None:
-        w = max(0.0, min(1.0, float(blend_forecast_weight)))
-        blend_val = (w * forecast_val) + ((1.0 - w) * float(lstm_val))
+    if forecast_val is not None:
+        corr = float(bias_correction_f) if bias_correction_f else 0.0
+        blend_val = forecast_val + corr
 
-    candidates = {
-        "forecast": forecast_val,
-        "blend": blend_val,
-        "lstm": None if lstm_val is None else float(lstm_val),
-    }
-    available = [k for k, v in candidates.items() if v is not None]
+    available = []
+    if forecast_val is not None:
+        available.append("forecast")
+    if blend_val is not None:
+        available.append("blend")
+
     return {
         "mode_forecast_pred": forecast_val,
         "mode_blend_pred": blend_val,
-        "mode_lstm_pred": None if lstm_val is None else float(lstm_val),
+        "mode_lstm_pred": None,
         "available_actions": available,
     }
 

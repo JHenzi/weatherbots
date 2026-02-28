@@ -32,9 +32,9 @@ services:
       # Optional: calibration window (days)
       WT_WINDOW_DAYS: "14"
 
-      # Contextual-bandit controls (safe default = off).
-      WT_BANDIT_MODE: "canary"          # off | shadow | canary
-      WT_BANDIT_CANARY_CITY: "ny"
+      # Contextual-bandit controls.
+      WT_BANDIT_MODE: "live"            # off | shadow | canary | live
+      WT_BANDIT_CANARY_CITY: "ny"       # only used in canary mode
       WT_BANDIT_ALPHA: "0.7"
       WT_BANDIT_EPSILON_SHADOW: "0.15"
       WT_BANDIT_EPSILON_CANARY: "0.05"

@@ -1,24 +1,32 @@
 {
-  "as_of": "2026-02-24",
+  "as_of": "2026-02-26",
   "cities": {
     "fl": {
-      "historical_MAE": 1.1670466666666668,
-      "n_days": 30
+      "bias_correction_f": 0.507,
+      "bias_n_days": 15,
+      "historical_MAE": 0.67418,
+      "n_days": 15
     },
     "il": {
-      "historical_MAE": 2.264468852459017,
-      "n_days": 61
+      "bias_correction_f": 0.6059,
+      "bias_n_days": 21,
+      "historical_MAE": 0.7806714285714287,
+      "n_days": 21
     },
     "ny": {
-      "historical_MAE": 1.4532952380952382,
-      "n_days": 63
+      "bias_correction_f": 0.4034,
+      "bias_n_days": 23,
+      "historical_MAE": 0.8708826086956521,
+      "n_days": 23
     },
     "tx": {
-      "historical_MAE": 1.2462512820512823,
-      "n_days": 39
+      "bias_correction_f": 0.5702,
+      "bias_n_days": 22,
+      "historical_MAE": 0.8435000000000001,
+      "n_days": 22
     }
   },
   "source": "Data/source_performance.csv (source_name=consensus, absolute_error)",
-  "updated_at": "2026-02-25T07:15:01.951514-05:00",
-  "window_days": 30
+  "updated_at": "2026-02-27T19:43:33.994003-05:00",
+  "window_days": 14
 }

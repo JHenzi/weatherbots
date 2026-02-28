@@ -125,7 +125,7 @@ def _parse_provider_result(raw) -> tuple[float | None, dict[str, object]]:
 
 def _bandit_mode_default() -> str:
     mode = str(os.getenv("WT_BANDIT_MODE", "off")).strip().lower()
-    if mode not in ("off", "shadow", "canary"):
+    if mode not in ("off", "shadow", "canary", "live"):
         return "off"
     return mode
 
@@ -1202,8 +1202,8 @@ def _parse_args():
         "--bandit-mode",
         type=str,
         default=_bandit_mode_default(),
-        choices=["off", "shadow", "canary"],
-        help="Contextual bandit mode: off|shadow|canary (default from WT_BANDIT_MODE).",
+        choices=["off", "shadow", "canary", "live"],
+        help="Contextual bandit mode: off|shadow|canary|live (default from WT_BANDIT_MODE).",
     )
     p.add_argument("--bandit-state-path", type=str, default="Data/bandit_state.json")
     p.add_argument("--context-features-csv", type=str, default="Data/context_features_history.csv")
@@ -1244,7 +1244,7 @@ if __name__ == "__main__":
     )
     if args.bandit_mode == "shadow":
         policy.set_epsilon(float(args.bandit_epsilon_shadow))
-    elif args.bandit_mode == "canary":
+    elif args.bandit_mode in ("canary", "live"):
         policy.set_epsilon(float(args.bandit_epsilon_canary))
     else:
         policy.set_epsilon(0.0)
@@ -1260,6 +1260,22 @@ if __name__ == "__main__":
             window_days=getattr(args, "mae_window_days", 7),
             end_date=mae_end,
         )
+
+    # Load per-city bias corrections from city_metadata.json.
+    # bias_correction_f > 0 means we historically run cold (under-predict); add it to forecast.
+    city_bias: dict[str, float] = {}
+    city_metadata_path = getattr(args, "city_metadata_json", "Data/city_metadata.json")
+    if city_metadata_path and os.path.exists(city_metadata_path):
+        try:
+            import json as _json
+            with open(city_metadata_path) as _f:
+                _meta = _json.load(_f) or {}
+            for _city, _info in (_meta.get("cities") or {}).items():
+                _bc = _info.get("bias_correction_f") if isinstance(_info, dict) else None
+                if _bc is not None:
+                    city_bias[str(_city).strip().lower()] = float(_bc)
+        except Exception:
+            pass
 
     # Lead 0/1: fetch and store forecasts for both today (lead 0) and tomorrow (lead 1).
     lead_dates = [
@@ -1391,7 +1407,7 @@ if __name__ == "__main__":
             candidate_modes = compute_candidate_mode_predictions(
                 city=city,
                 forecast_pred=mean_forecast,
-                blend_forecast_weight=float(args.blend_forecast_weight),
+                bias_correction_f=city_bias.get(city, 0.0),
             )
             mode_forecast_pred = _safe_float(candidate_modes.get("mode_forecast_pred"))
             mode_blend_pred = _safe_float(candidate_modes.get("mode_blend_pred"))
@@ -1411,7 +1427,7 @@ if __name__ == "__main__":
             feature_vector = []
             feature_map: dict[str, float] = {}
 
-            if args.bandit_mode in ("shadow", "canary") and available_actions:
+            if args.bandit_mode in ("shadow", "canary", "live") and available_actions:
                 fvec, fmap = build_feature_vector(
                     city=city,
                     trade_date=target_dt,
@@ -1448,18 +1464,23 @@ if __name__ == "__main__":
                     )
                     guardrail_reason = ";".join([x for x in [guardrail_reason, "shadow_no_apply"] if x])
                 else:
-                    # Canary scope gate.
-                    canary_scope_ok = bool(
-                        city == str(args.bandit_canary_city).strip().lower()
-                        and str(args.decision_role).strip().lower() == "trade"
-                    )
-                    if not canary_scope_ok:
+                    # Scope gate: canary restricts to one city; live applies to all cities.
+                    if args.bandit_mode == "live":
+                        scope_ok = str(args.decision_role).strip().lower() == "trade"
+                        scope_label = "live_monitoring_no_apply"
+                    else:  # canary
+                        scope_ok = bool(
+                            city == str(args.bandit_canary_city).strip().lower()
+                            and str(args.decision_role).strip().lower() == "trade"
+                        )
+                        scope_label = "canary_scope"
+                    if not scope_ok:
                         applied_action, _, _ = choose_mode_prediction(
                             selected_action="forecast",
                             candidates=candidate_pred_map,
                             fallback_action=selected_action,
                         )
-                        guardrail_reason = ";".join([x for x in [guardrail_reason, "canary_scope"] if x])
+                        guardrail_reason = ";".join([x for x in [guardrail_reason, scope_label] if x])
                     else:
                         applied_action = selected_action
                         applied_pred = selected_pred

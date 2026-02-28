@@ -11,7 +11,7 @@ import numpy as np
 
 from .context import CANONICAL_TOKENS
 
-ACTIONS = ["forecast", "blend", "lstm"]
+ACTIONS = ["forecast", "blend"]
 CITY_ORDER = ["ny", "il", "tx", "fl"]
 SKY_ORDER = ["sunny", "mixed", "cloudy"]
 TOKEN_ORDER = list(CANONICAL_TOKENS)

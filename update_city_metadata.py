@@ -63,6 +63,10 @@ if __name__ == "__main__":
 
     sums: dict[str, float] = {}
     ns: dict[str, int] = {}
+    # Signed bias: sum of (actual - predicted) for consensus source.
+    # Positive = we run cold (under-predict), negative = we run hot.
+    bias_sums: dict[str, float] = {}
+    bias_ns: dict[str, int] = {}
 
     with open(args.metrics_csv, "r", newline="") as f:
         r = csv.DictReader(f)
@@ -84,6 +88,10 @@ if __name__ == "__main__":
                 if (row.get("source_name") or "").strip() != "consensus":
                     continue
                 v = _safe_float(row.get("absolute_error"))
+                # Signed bias: actual_tmax - predicted_tmax
+                actual = _safe_float(row.get("actual_tmax"))
+                predicted = _safe_float(row.get("predicted_tmax"))
+                signed = None if (actual is None or predicted is None) else actual - predicted
             else:
                 d = (row.get("trade_date") or "").strip()
                 if (row.get("metric_type") or "").strip() != "mae_f":
@@ -91,6 +99,7 @@ if __name__ == "__main__":
                 if (row.get("source_name") or "").strip() != "consensus":
                     continue
                 v = _safe_float(row.get("value"))
+                signed = None  # daily_metrics schema has no signed info
 
             if not d:
                 continue
@@ -106,14 +115,22 @@ if __name__ == "__main__":
             sums[city] = sums.get(city, 0.0) + float(v)
             ns[city] = ns.get(city, 0) + 1
 
+            if signed is not None:
+                bias_sums[city] = bias_sums.get(city, 0.0) + float(signed)
+                bias_ns[city] = bias_ns.get(city, 0) + 1
+
     cities: dict[str, dict] = {}
     for city in sorted(set(list(sums.keys()) + list(ns.keys()))):
         if ns.get(city, 0) <= 0:
             continue
-        cities[city] = {
+        entry: dict = {
             "historical_MAE": sums[city] / ns[city],
             "n_days": ns[city],
         }
+        if bias_ns.get(city, 0) > 0:
+            entry["bias_correction_f"] = round(bias_sums[city] / bias_ns[city], 4)
+            entry["bias_n_days"] = bias_ns[city]
+        cities[city] = entry
 
     # If we found no consensus MAE rows, don't overwrite an existing metadata file with empties.
     # This commonly happens early on (no settled evals yet) or when settle truth isn't available yet.
