@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
 from context_correlation_report import build_report as build_context_correlation_report
+from trade_log_summary import build_recent_trade_log
 
 try:
     import db
@@ -215,6 +216,7 @@ def _run_observation_fetch() -> None:
 
 # --- FastAPI app ---
 TRADES_CSV = DATA_DIR / "trades_history.csv"
+DECISIONS_CSV = DATA_DIR / "decisions_history.csv"
 PREDICTIONS_LATEST = DATA_DIR / "predictions_latest.csv"
 INTRADAY_CSV = DATA_DIR / "intraday_forecasts.csv"
 SOURCE_PERFORMANCE_CSV = DATA_DIR / "source_performance.csv"
@@ -257,6 +259,16 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
         return []
     with open(path, "r", newline="") as f:
         return list(csv.DictReader(f))
+
+
+def _recent_trade_log(days: int = 3, env: str = "prod") -> Dict[str, Any]:
+    return build_recent_trade_log(
+        decisions_path=DECISIONS_CSV,
+        trades_path=TRADES_CSV,
+        city_order=list(CITY_LATLON_TZ.keys()),
+        days=days,
+        env=env,
+    )
 
 
 def _get_actuals_by_date_city() -> Dict[tuple, float]:
@@ -393,6 +405,11 @@ async def get_observations():
     if not OBSERVATIONS_JSON.exists():
         return {"stations": {}, "last_update": None}
     return json.loads(OBSERVATIONS_JSON.read_text())
+
+
+@app.get("/api/trade_log")
+async def get_trade_log(days: int = 3, env: str = "prod"):
+    return _recent_trade_log(days=days, env=env)
 
 
 # --- Analytics (forecasts vs actuals, projection vs actual, when to lock in) ---
