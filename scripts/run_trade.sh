@@ -49,7 +49,7 @@ ARGS=(
   --trades-log Data/trades_history.csv
   --decisions-log Data/decisions_history.csv
   --eval-log Data/eval_history.csv
-  --min-confidence 0.75
+  --min-confidence 0.60
   --max-spread 3.0
   --orderbook-depth 25
   --sigma-floor 2.0

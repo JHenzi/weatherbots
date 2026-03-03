@@ -1222,6 +1222,17 @@ def _parse_args():
         help="Guardrail max |selected - forecast| in F before fallback in canary mode.",
     )
     p.add_argument("--blend-forecast-weight", type=float, default=0.8)
+    p.add_argument(
+        "--max-source-divergence",
+        dest="max_source_divergence_f",
+        type=float,
+        default=3.0,
+        help=(
+            "Widen sigma when any single source deviates more than this many °F from the "
+            "weighted consensus mean. Captures lone-outlier signals (e.g., warm-front days "
+            "where one provider is 4°F above the others). Default 3.0°F."
+        ),
+    )
     return p.parse_args()
 
 
@@ -1377,6 +1388,16 @@ if __name__ == "__main__":
             else:
                 sigma = float(statistics.pstdev(list(available.values()))) if len(available) > 1 else (0.0 if available else None)
                 bonus = 0.0
+
+            # Max-source-divergence guardrail: if any single source deviates more than
+            # max_source_divergence_f degrees from the weighted consensus, widen sigma to
+            # reflect the elevated uncertainty. This catches warm/cold-front days where one
+            # provider is signalling a large move that the others haven't yet captured.
+            if mean_forecast is not None and available and sigma is not None:
+                max_src_dev = max(abs(v - mean_forecast) for v in available.values())
+                if max_src_dev > float(args.max_source_divergence_f):
+                    sigma = max(sigma, max_src_dev / 2.0)
+
             spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
             spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
             skill_conf = _skill_from_weights(weights_used, mae_map=mae_map)
