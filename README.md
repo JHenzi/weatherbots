@@ -1,15 +1,28 @@
-## Kalshi Weather Market Bot — Automated Daily High Temperature Trading
+## How To Trade Weather on Kalshi — A Weather Prediction Market Bot
 
-Weather Trader is an automated prediction market trading system for [Kalshi](https://kalshi.com) daily high-temperature contracts. It ingests real-time weather forecasts from eight providers, calibrates source weights nightly against NWS settlement truth, and executes EV-positive trades with a contextual-bandit model selection layer.
+If you are searching for how weather prediction markets work, how people try to get an edge in temperature contracts, or how to automate a weather-trading strategy, this repo is built for exactly that problem.
 
-It doesn't just predict a temperature — it answers:
-**which forecaster is right, for this city, in this condition regime, and by how much** — then sizes and places orders with guardrails.
+Weather Trader is an automated system for [Kalshi](https://kalshi.com) daily high-temperature markets. It pulls forecasts from eight weather sources, scores them against NWS settlement truth, learns which sources and prediction modes are working best, and only takes trades that clear configurable guardrails.
+
+In plain English: this is a working example of how someone can approach weather markets with data, discipline, and automation instead of guessing.
 
 ![Next trade view: prediction, confidence, source set, and weights.](Forecasts.png)
 
 ---
 
-## Quick Start
+## Why People Use This Repo
+
+- Learn how a real weather prediction market workflow is built end to end.
+- Study how traders can look for edge in data-rich, rules-based markets instead of relying on gut feel.
+- Run a live dashboard, a paper-trading loop, and a fully automated pipeline on your own machine.
+- Explore "how to bet on weather" in a technical, measurable way: forecasts in, probabilities out, orders gated by risk rules.
+
+> [!IMPORTANT]
+> This is research and automation code, not a promise of profit. Prediction markets are risky. The safest way to start is `KALSHI_ENV=demo` with `WT_SEND_ORDERS=false`.
+
+---
+
+## Quick Start in Demo Mode
 
 ```bash
 cp .env.example .env      # fill in KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PATH
@@ -18,6 +31,7 @@ open http://localhost:8080  # live dashboard
 ```
 
 Minimum required secrets: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`.
+Recommended first run: keep `KALSHI_ENV=demo` and `WT_SEND_ORDERS=false` until you trust the pipeline.
 
 > [!IMPORTANT]
 > **Setup guides:** [Docker setup](documentation/docker_setup.md) · [Operational runbook](documentation/operational_runbook.md) · [Environment variables](documentation/environment_variables.md)
@@ -33,7 +47,7 @@ Never commit `.env` or private keys. See [SECURITY.md](SECURITY.md) if secrets w
 ### Multi-source weather forecast aggregation
 Pulls daily high-temperature forecasts from **Open-Meteo, Visual Crossing, Tomorrow.io, WeatherAPI, OpenWeatherMap, Pirate Weather, NWS Weather.gov, and Google Weather**. Each source is scored continuously against NWS CLI settlement truth and reweighted nightly via inverse-MAE weighting.
 
-### Kalshi prediction market execution
+### Kalshi weather market execution
 Targets Kalshi daily high-temperature markets for **New York (KXHIGHNY), Chicago (KXHIGHCHI), Austin (KXHIGHAUS), and Miami (KXHIGHMIA)**. Selects the highest-EV bucket using a live orderbook snapshot, with confidence/spread guardrails and per-city daily budget controls.
 
 ### Contextual bandit model selection
@@ -48,6 +62,9 @@ The system tracks signed prediction error per city over a 14-day rolling window.
 
 ### Intraday refresh and trade gates
 Forecasts refresh every hour. Trade decisions fire at **13:00 local time per city** (NY/FL at 13:00 ET, IL/TX at 14:00 ET). A second intraday pulse runs at 14:00 ET for remaining cities.
+
+### Why that can matter in prediction markets
+Weather markets are attractive because they settle on objective public data, update throughout the day, and often show visible disagreement between sources. This repo is built around that edge hypothesis: if you can measure forecast quality better than the market prices it, you may be able to find better entries than a casual trader.
 
 ---
 
@@ -135,6 +152,79 @@ update_city_metadata.py    ← nightly: update per-city MAE + rolling bias corre
 
 > [!CAUTION]
 > **[SECURITY.md](SECURITY.md)** — key rotation, purging git history, deleting cache files
+
+---
+
+## Weather Prediction Betting Intelligence
+
+This section documents observed system performance, source quality, and the guardrail decisions made from live production data (Jan–Mar 2026). Numbers are derived from settled NWS CLI actuals vs. predictions logged at trade time.
+
+### Observed Prediction Accuracy (MAE)
+
+**14-day rolling MAE by city** (consensus ensemble, production runs):
+
+| City | MAE (14d) | Typical cold bias | Bias correction applied |
+|------|-----------|-------------------|------------------------|
+| Miami (FL) | **0.67°F** | +0.89°F | Yes — `blend` mode |
+| Chicago (IL) | **0.78°F** | +0.55°F | Yes — `blend` mode |
+| Austin (TX) | **0.84°F** | +0.55°F | Yes — `blend` mode |
+| NYC (NY) | **0.87°F** | +0.51°F | Yes — `blend` mode |
+
+On stable weather days (no front transitions), production MAE averages **~1.0°F**. This is the regime where all four providers cluster tightly and confidence scores are high.
+
+On weather-transition days (warm or cold fronts), errors of 3–7°F are possible. These are not bugs — every provider fails simultaneously because the NWP models miss the front timing. The guardrails below address this.
+
+### Source Quality Ranking
+
+Eight sources are scored continuously against NWS CLI actuals. Weights are updated nightly via inverse-MAE.
+
+| Source | Role | Notes |
+|--------|------|-------|
+| **Visual Crossing** | Highest weight (40–59% across cities) | Most consistent; best for IL, TX |
+| **Tomorrow.io** | Second tier (15–30%) | Strong for TX and transitional days |
+| **Open-Meteo** | Second tier (10–30%) | Good for IL, NY |
+| **Pirate Weather** | Third tier (10–20%) | Reliable background signal |
+| **WeatherAPI** | Low weight, used as divergence signal | Runs 1–4°F warm; useful as a leading warm-front indicator |
+| **OpenWeatherMap** | Very low weight (<1%) | Low accuracy vs. NWS actuals |
+| **Google Weather** | Very low weight (<1%) | Included but rarely decisive |
+| **Weather.gov (NWS)** | Very low weight (<1%) | Ironically not the most accurate at forecast time |
+| ~~LSTM~~ | **Retired** | Was 20–35°F off due to stale training data |
+
+### Guardrails and Trades Avoided
+
+The system applies layered gates before any order is placed:
+
+**1. Spread (sigma) guardrail** — skips if cross-source standard deviation exceeds 3.0°F.
+
+**2. Max-source-divergence guardrail** (added Mar 2026) — if any single source deviates more than 3.0°F from the weighted consensus mean, sigma is widened to `max(sigma, max_deviation / 2)`. This lowers the confidence score and can trigger a skip even when most sources agree.
+
+*Example: Feb 26 NYC.* Actual high was 49°F. All sources predicted 40.9–42.2°F except WeatherAPI at 46.4°F — a 4.5°F divergence from consensus. The original sigma was 1.09°F (sources appeared to agree), but with the divergence guardrail the effective sigma would have widened to 2.25°F, dropping `conf_final` to ~0.44 and **skipping a trade that lost -$2.82 on a 7.1°F miss**.
+
+**3. Confidence threshold** — currently 0.60 (`effective_confidence = 0.7 × confidence + 0.3 × conviction`). Raised from 0.50 to 0.75 in Feb 2026 to reduce trading, lowered back to 0.60 in Mar 2026 after diagnosing that the 0.75 threshold was blocking legitimate trades on normal days.
+
+**4. Intraday signal gate** — requires a stable or monotonically increasing prediction trend across the last four 30-minute pulses before allowing an order.
+
+### What the Data Shows About Bad Trades
+
+From 18 settled production trades (Feb 4 – Feb 28 2026):
+
+| Scenario | Trades | Avg error | Notes |
+|----------|--------|-----------|-------|
+| Normal days (sources agree) | 14 | **1.05°F** | Sources within 2°F of each other |
+| Outlier/transition days | 4 | **5.12°F** | Feb 18 TX cold snap, Feb 21 IL cold snap, Feb 25–26 NY warm front |
+
+All four outlier trades shared the same root cause: **every provider simultaneously missed a front transition**. Three of the four had tight cross-source agreement (sigma < 2°F), which is why the spread guardrail didn't fire. The new divergence guardrail specifically addresses the Feb 26 NY case where WeatherAPI was signalling the warm move while the others were not.
+
+Key observation: **later-in-the-day predictions are more accurate** (hour 15 averages 1.81°F MAE vs. 2.08°F at hour 13 across all settled data), because providers issue NWP model updates in the early afternoon. However, the system intentionally trades at 13:00 local time — by 15:00, Kalshi market liquidity drops significantly and the prices available no longer offer good value. The accuracy improvement is not worth the liquidity cost.
+
+### Prediction Mode Performance
+
+The contextual bandit chooses between two actions:
+
+- **`forecast`** — raw MAE-weighted ensemble mean
+- **`blend`** — `forecast + bias_correction_f` (adds the 14-day rolling signed bias to correct systematic under-prediction)
+
+In the current production window, the bandit has predominantly selected `forecast` mode. As reward signal accumulates post-settlement, `blend` selection is expected to increase — the 14-day bias corrections (+0.5–0.9°F across cities) are directionally correct and the bandit's LinUCB policy will learn to exploit this in the appropriate sky/spread context.
 
 ---
 
