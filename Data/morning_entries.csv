@@ -1,0 +1,5 @@
+logged_at,trade_date,city,series_ticker,event_ticker,market_ticker,market_subtitle,bucket_lo,bucket_hi,entry_price,model_prob,kelly,count,target_exit_price,exit_order_id,exit_price_filled,exit_ts,send_orders,status
+2026-03-02T23:29:45.598521-05:00,2026-03-03,tx,KXHIGHAUS,KXHIGHAUS-26MAR03,KXHIGHAUS-26MAR03-T85,84° or below,,84.0,4,0.1504,0.1150,1,10,,,,False,open
+2026-03-02T23:29:47.608799-05:00,2026-03-03,fl,KXHIGHMIA,KXHIGHMIA-26MAR03,KXHIGHMIA-26MAR03-B76.5,76° to 77°,76.0,77.0,6,0.1683,0.1152,1,15,,,,False,open
+2026-03-03T07:15:59.922194-05:00,2026-03-03,fl,KXHIGHMIA,KXHIGHMIA-26MAR03,KXHIGHMIA-26MAR03-T76,75° or below,,75.0,1,0.1097,0.1008,6,2,,,,True,open
+2026-03-03T10:24:06.450317-05:00,2026-03-03,fl,KXHIGHMIA,KXHIGHMIA-26MAR03,KXHIGHMIA-26MAR03-B78.5,78° to 79°,78.0,79.0,2,0.1926,0.1761,5,5,,,,False,open

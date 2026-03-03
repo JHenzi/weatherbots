@@ -11,7 +11,9 @@ if [[ -f ".venv/bin/activate" ]]; then
   source ".venv/bin/activate"
 fi
 
-# Pulse is for the same trade_date that the trade job uses (**today's** markets).
+WT_ENV="${WT_ENV:-demo}"
+WT_SEND_ORDERS="${WT_SEND_ORDERS:-false}"
+
 TRADE_DATE="$(python - <<'PY'
 import datetime as dt, os
 try:
@@ -24,10 +26,21 @@ print(today.isoformat())
 PY
 )"
 
-WT_BANDIT_MODE="${WT_BANDIT_MODE:-live}"
+echo "[exit_manager] $(date -Is) trade_date=${TRADE_DATE} cleanup=${CLEANUP:-false}"
 
-echo "[intraday_pulse] $(date -Is) trade_date=${TRADE_DATE}"
-python intraday_pulse.py --trade-date "$TRADE_DATE" --decision-role monitoring --bandit-mode "$WT_BANDIT_MODE" --write-predictions
+ARGS=(
+  python exit_manager.py
+  --env "$WT_ENV"
+  --trade-date "$TRADE_DATE"
+)
 
-# Snapshot all bucket prices for the market-making price history (graceful: skips if no API key).
-python log_market_prices.py --trade-date "$TRADE_DATE" --env "${WT_ENV:-demo}" 2>&1 || true
+# Pass --cleanup flag when script is called for the 12:30 cleanup pass.
+if [[ "${CLEANUP:-false}" == "true" ]] || [[ "${1:-}" == "--cleanup" ]]; then
+  ARGS+=(--cleanup)
+fi
+
+case "$(echo "$WT_SEND_ORDERS" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|y) ARGS+=(--send-orders) ;;
+esac
+
+"${ARGS[@]}"

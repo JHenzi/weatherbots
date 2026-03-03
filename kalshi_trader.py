@@ -98,6 +98,10 @@ class KalshiHttpClient:
         headers["Content-Type"] = "application/json"
         return requests.post(self.base + path, headers=headers, json=data, timeout=timeout_s)
 
+    def delete(self, path: str, *, timeout_s: int = 30) -> requests.Response:
+        headers = kalshi_headers(self.private_key, self.api_key_id, "DELETE", path)
+        return requests.delete(self.base + path, headers=headers, timeout=timeout_s)
+
 
 SERIES_TICKERS = {
     # Default to the KX* series, which exist in the Kalshi demo environment.
@@ -420,6 +424,81 @@ def get_balance(client: KalshiHttpClient) -> dict:
         "balance_cents": bal,
         "raw": payload,
     }
+
+
+def get_open_orders(
+    client: KalshiHttpClient,
+    *,
+    ticker: str | None = None,
+    status: str = "resting",
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Fetch open (resting) orders from the portfolio.
+    Returns a list of order dicts: {order_id, ticker, side, action, type, yes_price, count, ...}.
+    """
+    params: dict[str, object] = {"limit": limit, "status": status}
+    if ticker:
+        params["ticker"] = ticker
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    path = f"/trade-api/v2/portfolio/orders?{qs}"
+    resp = client.get(path)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to fetch open orders: {resp.status_code} {resp.text}")
+    payload = resp.json() or {}
+    return list(payload.get("orders") or [])
+
+
+def cancel_order(client: KalshiHttpClient, order_id: str) -> bool:
+    """
+    Cancel a resting order by order_id.
+    Returns True on success (204 No Content or 200), False if the order was not found.
+    """
+    path = f"/trade-api/v2/portfolio/orders/{order_id}"
+    resp = client.delete(path)
+    if resp.status_code in (200, 204):
+        return True
+    if resp.status_code == 404:
+        return False
+    raise RuntimeError(f"Failed to cancel order {order_id}: {resp.status_code} {resp.text}")
+
+
+def place_sell_order(
+    client: KalshiHttpClient,
+    *,
+    ticker: str,
+    count: int,
+    yes_price: int,
+    client_order_id: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Sell YES contracts from an existing long position.
+    yes_price is the minimum price (cents) at which we're willing to sell.
+    Returns the order payload on success.
+    """
+    if dry_run:
+        return {
+            "dry_run": True,
+            "ticker": ticker,
+            "side": "yes",
+            "action": "sell",
+            "count": count,
+            "yes_price": yes_price,
+        }
+    order = {
+        "ticker": ticker,
+        "side": "yes",
+        "action": "sell",
+        "count": int(count),
+        "type": "limit",
+        "yes_price": int(yes_price),
+        "client_order_id": client_order_id or str(uuid.uuid4()),
+    }
+    resp = client.post("/trade-api/v2/portfolio/orders", order)
+    if resp.status_code != 201:
+        raise RuntimeError(f"Sell order failed for {ticker}: {resp.status_code} {resp.text}")
+    return resp.json()
 
 
 def _best_yes_prices_from_orderbook(orderbook_payload: dict) -> dict[str, float | int | None]:
