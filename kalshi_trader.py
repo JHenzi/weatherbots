@@ -1173,6 +1173,13 @@ def _parse_args():
     p.add_argument("--min-ev-cents", type=float, default=3.0)
     p.add_argument("--max-yes-spread-cents", type=float, default=6.0)
     p.add_argument("--min-ask-depth", type=int, default=25)
+    p.add_argument(
+        "--min-yes-ask",
+        type=int,
+        default=2,
+        help="Skip if market prices the predicted bucket below this many cents (default 2). "
+             "A 1¢ ask means the market is nearly certain your forecast is wrong — don't fight it.",
+    )
     p.add_argument("--max-dollars-per-city", type=float, default=50.0)
     p.add_argument("--max-dollars-total", type=float, default=150.0)
     p.add_argument("--max-contracts-per-order", type=int, default=500)
@@ -1616,6 +1623,35 @@ if __name__ == "__main__":
             print("SKIP: could not determine YES ask for chosen bucket")
             continue
         yes_ask = int(yes_ask)
+
+        # Market-disagreement guard: if the market prices our predicted bucket below
+        # the floor, the market is nearly certain our forecast is wrong. Historical
+        # pattern shows 1¢ buckets = market knows about an incoming front/cold snap we missed.
+        if yes_ask < int(args.min_yes_ask):
+            reason = f"market_disagrees;yes_ask={yes_ask}<min_yes_ask={args.min_yes_ask}"
+            print(
+                f"SKIP: market ask={yes_ask}¢ < --min-yes-ask={args.min_yes_ask}¢ "
+                f"({ticker}). Market strongly disagrees with forecast — skipping."
+            )
+            if args.decisions_log:
+                _append_decision(
+                    args.decisions_log,
+                    {
+                        "run_ts": _now_iso(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "pred_tmax_f": f"{pred:.4f}",
+                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
+                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
+                        "decision": "skip",
+                        "reason": reason,
+                    },
+                )
+            continue
+
         yes_spread = px.get("yes_spread")
         yes_spread = None if yes_spread is None else int(yes_spread)
         yes_bid = px.get("best_yes_bid")

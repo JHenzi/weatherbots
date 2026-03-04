@@ -28,7 +28,6 @@ from kalshi_trader import (
     KalshiHttpClient,
     cancel_order,
     get_open_orders,
-    get_yes_pricing,
     place_sell_order,
 )
 
@@ -176,7 +175,8 @@ def check_and_exit(
                 print(f"[exit_manager] ✓ filled: {ticker} @ {target}¢")
             continue
 
-        # status == "open": evaluate whether to place a limit sell.
+        # status == "open": morning_trader should have placed the limit sell immediately
+        # after buying. If we're here, the sell placement failed at entry time — retry now.
         if status != "open":
             continue
 
@@ -189,61 +189,30 @@ def check_and_exit(
         if target <= 0 or count <= 0:
             continue
 
-        try:
-            pricing, _ = get_yes_pricing(client, ticker, orderbook_depth=5, fallback_qty=10)
-        except Exception as exc:
-            print(f"[exit_manager] pricing failed for {ticker}: {exc}", file=sys.stderr)
-            continue
-
-        yes_bid = pricing.get("best_yes_bid")
-        yes_ask = pricing.get("yes_ask")
-
-        if yes_bid is None:
-            print(f"[exit_manager] {ticker}: no bid available yet")
-            continue
-
-        yes_bid_i = int(yes_bid)
-        entry_price = int(row.get("entry_price", 0))
-
         print(
-            f"[exit_manager] {ticker} — "
-            f"entry={entry_price}¢ target={target}¢ current_bid={yes_bid_i}¢ "
-            f"ask={yes_ask}¢"
+            f"[exit_manager] {ticker}: status=open (sell placement missed at entry) — "
+            f"retrying limit sell @ {target}¢ × {count} "
+            f"({'LIVE' if send_orders else 'DRY RUN'})"
         )
-
-        if yes_bid_i >= target:
-            # Place limit sell at the current bid (someone is willing to pay this).
-            sell_price = yes_bid_i
-            order_id = str(uuid.uuid4())
-            print(
-                f"[exit_manager] → placing limit sell: {ticker} × {count} @ {sell_price}¢ "
-                f"({'LIVE' if send_orders else 'DRY RUN'})"
-            )
-            if send_orders:
-                try:
-                    result = place_sell_order(
-                        client,
-                        ticker=ticker,
-                        count=count,
-                        yes_price=sell_price,
-                        client_order_id=order_id,
-                    )
-                    order_id = (
-                        result.get("order", {}).get("order_id")
-                        or result.get("order_id")
-                        or order_id
-                    )
-                    print(f"[exit_manager] ✓ sell order submitted: {order_id}")
-                except Exception as exc:
-                    print(f"[exit_manager] sell order failed: {exc}", file=sys.stderr)
-                    continue
-
-            row["exit_order_id"] = order_id
-            row["status"] = "limit_placed"
-            changed = True
-        else:
-            remaining = target - yes_bid_i
-            print(f"[exit_manager] {ticker}: holding — {remaining}¢ below target")
+        if send_orders:
+            try:
+                result = place_sell_order(
+                    client,
+                    ticker=ticker,
+                    count=count,
+                    yes_price=target,
+                )
+                order_id = (
+                    (result.get("order") or {}).get("order_id")
+                    or result.get("order_id")
+                    or str(uuid.uuid4())
+                )
+                row["exit_order_id"] = order_id
+                row["status"] = "limit_placed"
+                changed = True
+                print(f"[exit_manager] ✓ retry sell placed: {order_id}")
+            except Exception as exc:
+                print(f"[exit_manager] retry sell failed for {ticker}: {exc}", file=sys.stderr)
 
     if changed:
         _save_entries(entries_csv, all_rows)

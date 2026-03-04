@@ -1,9 +1,13 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
+
+# Add this before your RUN apt-get command
+# RUN sed -i 's/deb.debian.org/ftp.us.debian.org/g' /etc/apt/sources.list
 
 # System deps for cron-based scheduling
 RUN apt-get update \

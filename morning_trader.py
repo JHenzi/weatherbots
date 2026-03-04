@@ -395,6 +395,7 @@ def scan_and_enter(
             )
 
             if send_orders:
+                buy_ok = False
                 try:
                     make_trade(
                         client=client,
@@ -412,12 +413,44 @@ def scan_and_enter(
                         env="prod" if "prod" in str(client.base) else "demo",
                         send_orders=True,
                     )
-                    print(f"[morning_trader] ✓ order submitted: {ticker} × {count}")
+                    buy_ok = True
+                    print(f"[morning_trader] ✓ buy submitted: {ticker} × {count} @ {ask}¢")
                 except Exception as exc:
-                    print(f"[morning_trader] order failed for {ticker}: {exc}", file=sys.stderr)
+                    print(f"[morning_trader] buy failed for {ticker}: {exc}", file=sys.stderr)
                     entry["status"] = "error"
+
+                # Immediately place the resting limit sell so it sits in the order book.
+                # Exit_manager will track whether it fills; at 12:30 it cancels any unfilled.
+                if buy_ok:
+                    try:
+                        sell_result = place_sell_order(
+                            client,
+                            ticker=ticker,
+                            count=count,
+                            yes_price=target_exit,
+                        )
+                        sell_order_id = (
+                            (sell_result.get("order") or {}).get("order_id")
+                            or sell_result.get("order_id")
+                            or ""
+                        )
+                        entry["exit_order_id"] = sell_order_id
+                        entry["status"] = "limit_placed"
+                        print(
+                            f"[morning_trader] ✓ limit sell placed: {ticker} × {count} "
+                            f"@ {target_exit}¢ (id={sell_order_id})"
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[morning_trader] limit sell failed for {ticker}: {exc} "
+                            f"— position open, exit_manager will retry",
+                            file=sys.stderr,
+                        )
             else:
-                print(f"[morning_trader] DRY RUN — would buy {ticker} × {count} @ {ask}¢")
+                print(
+                    f"[morning_trader] DRY RUN — would buy {ticker} × {count} @ {ask}¢ "
+                    f"then place limit sell @ {target_exit}¢"
+                )
 
             _append_entry(entries_csv, entry)
             all_entries.append(entry)
