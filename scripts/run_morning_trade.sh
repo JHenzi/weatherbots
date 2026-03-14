@@ -13,6 +13,9 @@ fi
 
 WT_ENV="${WT_ENV:-demo}"
 WT_SEND_ORDERS="${WT_SEND_ORDERS:-false}"
+# WT_MORNING_SEND_ORDERS overrides the global flag for morning trades only.
+# Defaults to false (shadow/learning mode) until the strategy is validated.
+WT_MORNING_SEND_ORDERS="${WT_MORNING_SEND_ORDERS:-false}"
 WT_MORNING_BUDGET="${WT_MORNING_BUDGET:-10}"
 WT_BANDIT_MODE="${WT_BANDIT_MODE:-live}"
 
@@ -53,7 +56,7 @@ ARGS=(
   --max-buckets-per-city 2
 )
 
-case "$(echo "$WT_SEND_ORDERS" | tr '[:upper:]' '[:lower:]')" in
+case "$(echo "$WT_MORNING_SEND_ORDERS" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|y) ARGS+=(--send-orders) ;;
 esac
 

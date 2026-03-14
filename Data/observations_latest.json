@@ -1,57 +1,57 @@
 {
-  "last_update": "2026-03-04T19:39:48.418516+00:00",
+  "last_update": "2026-03-14T15:44:31.307541+00:00",
   "stations": {
     "ny": {
       "city": "ny",
       "stid": "KNYC",
-      "timestamp": "2026-03-04T18:51:00+00:00",
-      "temp": 48.02,
-      "observed_high_today": 48.02,
-      "projected_high": 48.02,
+      "timestamp": "2026-03-14T14:51:00+00:00",
+      "temp": 46.04,
+      "observed_high_today": 46.04,
+      "projected_high": 51.16,
       "trend_10m": 0.0,
-      "trend_30m": 1.98,
-      "trend_1h": 2.52,
-      "acceleration": -1.98,
-      "time_temp_will_max": "2026-03-04T14:07:42-05:00"
+      "trend_30m": 1.08,
+      "trend_1h": 1.53,
+      "acceleration": -1.08,
+      "time_temp_will_max": "2026-03-14T15:05:12-04:00"
     },
     "il": {
       "city": "il",
       "stid": "KMDW",
-      "timestamp": "2026-03-04T19:20:00+00:00",
-      "temp": 39.2,
-      "observed_high_today": 42.8,
-      "projected_high": 42.8,
-      "trend_10m": -4.4039,
-      "trend_30m": -0.6421,
-      "trend_1h": -0.1695,
-      "acceleration": -3.7617,
-      "time_temp_will_max": "2026-03-04T14:02:52-06:00"
+      "timestamp": "2026-03-14T15:20:00+00:00",
+      "temp": 35.6,
+      "observed_high_today": 35.6,
+      "projected_high": 37.81,
+      "trend_10m": 6.48,
+      "trend_30m": 1.7683,
+      "trend_1h": 0.5189,
+      "acceleration": 4.7117,
+      "time_temp_will_max": "2026-03-14T15:00:23-05:00"
     },
     "tx": {
       "city": "tx",
       "stid": "KAUS",
-      "timestamp": "2026-03-04T19:20:00+00:00",
-      "temp": 84.2,
-      "observed_high_today": 84.92,
-      "projected_high": 85.99,
-      "trend_10m": -0.0,
-      "trend_30m": 2.4211,
-      "trend_1h": 1.7152,
-      "acceleration": -2.4211,
-      "time_temp_will_max": "2026-03-04T14:42:28-06:00"
+      "timestamp": "2026-03-14T15:20:00+00:00",
+      "temp": 60.8,
+      "observed_high_today": 62.6,
+      "projected_high": 68.14,
+      "trend_10m": -0.0711,
+      "trend_30m": 0.1275,
+      "trend_1h": 1.4913,
+      "acceleration": -0.1986,
+      "time_temp_will_max": "2026-03-14T15:39:58-05:00"
     },
     "fl": {
       "city": "fl",
       "stid": "KMIA",
-      "timestamp": "2026-03-04T19:25:00+00:00",
-      "temp": 80.6,
-      "observed_high_today": 80.96,
-      "projected_high": 80.96,
-      "trend_10m": -0.0,
-      "trend_30m": -1.42,
-      "trend_1h": 0.2483,
-      "acceleration": 1.42,
-      "time_temp_will_max": "2026-03-04T14:32:34-05:00"
+      "timestamp": "2026-03-14T15:20:00+00:00",
+      "temp": 82.4,
+      "observed_high_today": 82.4,
+      "projected_high": 91.81,
+      "trend_10m": 4.32,
+      "trend_30m": 2.0922,
+      "trend_1h": 2.5043,
+      "acceleration": 2.2278,
+      "time_temp_will_max": "2026-03-14T15:30:04-04:00"
     }
   }
 }

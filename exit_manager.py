@@ -127,8 +127,8 @@ def check_and_exit(
         status = row.get("status", "")
         ticker = row.get("market_ticker", "")
 
-        # Already done.
-        if status in ("filled", "settled", "error", "cancelled"):
+        # Already done, or a shadow/dry-run entry — never touch these.
+        if status in ("filled", "settled", "error", "cancelled", "shadow"):
             continue
 
         # --- Cleanup pass: cancel resting limit sells, leave to settle. ---

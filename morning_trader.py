@@ -94,8 +94,27 @@ def _event_ticker_for(series: str, trade_date: str) -> str:
     return f"{series}-{d.strftime('%y%b%d').upper()}"
 
 
-def _load_predictions(path: str, trade_date: str) -> dict[str, dict]:
-    """Return {city: {mu, sigma, spread_f, confidence_score}} from predictions_latest.csv."""
+def _load_bias(city_metadata_path: str) -> dict[str, float]:
+    """Return {city: bias_correction_f} from city_metadata.json (same source as 1PM blend mode)."""
+    if not os.path.exists(city_metadata_path):
+        return {}
+    try:
+        import json
+        with open(city_metadata_path) as f:
+            meta = json.load(f)
+        return {
+            city: float(data.get("bias_correction_f", 0.0))
+            for city, data in meta.get("cities", {}).items()
+        }
+    except Exception:
+        return {}
+
+
+def _load_predictions(path: str, trade_date: str, city_bias: dict[str, float]) -> dict[str, dict]:
+    """Return {city: {mu, sigma, spread_f, confidence_score}} from predictions_latest.csv.
+    mu is bias-corrected (same as the 1PM bandit's blend mode) so bucket selection
+    reflects the same adjusted prediction used for live trades.
+    """
     result: dict[str, dict] = {}
     if not os.path.exists(path):
         return result
@@ -108,17 +127,22 @@ def _load_predictions(path: str, trade_date: str) -> dict[str, dict]:
             if not city:
                 continue
             try:
-                mu = float(row.get("tmax_predicted") or row.get("tmax_forecast") or "")
+                mu_raw = float(row.get("tmax_predicted") or row.get("tmax_forecast") or "")
             except (ValueError, TypeError):
                 continue
             try:
                 sigma_raw = float(row.get("spread_f") or "")
             except (ValueError, TypeError):
                 sigma_raw = 2.0
+            # Apply bias correction — same +X°F shift the 1PM bandit uses for blend mode.
+            bias = city_bias.get(city, 0.0)
+            mu = mu_raw + bias
             # Use at least 2°F sigma so tail probabilities aren't near-zero.
             sigma = max(2.0, sigma_raw)
             result[city] = {
                 "mu": mu,
+                "mu_raw": mu_raw,
+                "bias": bias,
                 "sigma": sigma,
                 "spread_f": sigma_raw,
                 "confidence_score": row.get("confidence_score", ""),
@@ -234,6 +258,7 @@ def scan_and_enter(
     city_predictions: dict[str, dict],
     morning_budget_dollars: float,
     max_entry_price: int,
+    min_yes_ask: int,
     kelly_fraction: float,
     min_kelly: float,
     min_model_prob: float,
@@ -312,8 +337,10 @@ def scan_and_enter(
                 continue
             yes_ask_i = int(yes_ask)
 
-            # Gate 1: price ceiling.
-            if yes_ask_i > max_entry_price or yes_ask_i <= 0:
+            # Gate 1: price ceiling and floor.
+            # Floor: same market-disagreement logic as 1PM trades — 1¢ means the market
+            # is near-certain our forecast is wrong, and these buckets don't drift.
+            if yes_ask_i > max_entry_price or yes_ask_i < min_yes_ask:
                 continue
 
             # Gate 2: liquidity floor.
@@ -364,6 +391,16 @@ def scan_and_enter(
                 continue
 
             target_exit = _compute_exit_target(ask, city, history_csv)
+
+            # Gate 4: minimum profit margin.
+            # If the learned exit target is ≤ entry price, the trade can't make money
+            # (market_price_history shows this bucket doesn't drift up). Skip it.
+            if target_exit <= ask:
+                print(
+                    f"[morning_trader] {city} {ticker}: target_exit={target_exit}¢ ≤ entry={ask}¢ "
+                    f"(no drift learned) — skipping"
+                )
+                continue
 
             entry = {
                 "logged_at": _now_iso(),
@@ -447,8 +484,9 @@ def scan_and_enter(
                             file=sys.stderr,
                         )
             else:
+                entry["status"] = "shadow"
                 print(
-                    f"[morning_trader] DRY RUN — would buy {ticker} × {count} @ {ask}¢ "
+                    f"[morning_trader] SHADOW — would buy {ticker} × {count} @ {ask}¢ "
                     f"then place limit sell @ {target_exit}¢"
                 )
 
@@ -476,6 +514,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--predictions-csv", type=str, default=PREDICTIONS_LATEST_CSV)
     p.add_argument("--entries-csv", type=str, default=MORNING_ENTRIES_CSV)
     p.add_argument("--history-csv", type=str, default=MARKET_PRICE_HISTORY_CSV)
+    p.add_argument("--city-metadata", type=str, default="Data/city_metadata.json")
     p.add_argument(
         "--morning-budget",
         type=float,
@@ -487,6 +526,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=25,
         help="Maximum ask price in cents to consider (default 25¢).",
+    )
+    p.add_argument(
+        "--min-yes-ask",
+        type=int,
+        default=2,
+        help="Minimum ask price in cents (default 2¢). 1¢ buckets don't drift and signal market disagreement.",
     )
     p.add_argument(
         "--kelly-fraction",
@@ -552,7 +597,8 @@ if __name__ == "__main__":
         private_key_path=args.private_key_path,
     )
 
-    city_predictions = _load_predictions(args.predictions_csv, args.trade_date)
+    city_bias = _load_bias(args.city_metadata)
+    city_predictions = _load_predictions(args.predictions_csv, args.trade_date, city_bias)
     if not city_predictions:
         print(
             f"[morning_trader] No predictions found for {args.trade_date} in {args.predictions_csv}",
@@ -566,7 +612,8 @@ if __name__ == "__main__":
         f"kelly_fraction={args.kelly_fraction} send_orders={args.send_orders}"
     )
     for city, pred in city_predictions.items():
-        print(f"  {city}: mu={pred['mu']:.2f}°F sigma={pred['sigma']:.2f}°F")
+        bias_str = f" (raw={pred['mu_raw']:.2f} + bias={pred['bias']:+.3f}°F)" if pred.get('bias') else ""
+        print(f"  {city}: mu={pred['mu']:.2f}°F sigma={pred['sigma']:.2f}°F{bias_str}")
 
     entries = scan_and_enter(
         client,
@@ -574,6 +621,7 @@ if __name__ == "__main__":
         city_predictions=city_predictions,
         morning_budget_dollars=args.morning_budget,
         max_entry_price=args.max_entry_price,
+        min_yes_ask=args.min_yes_ask,
         kelly_fraction=args.kelly_fraction,
         min_kelly=args.min_kelly,
         min_model_prob=args.min_model_prob,
