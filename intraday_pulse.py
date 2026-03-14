@@ -1275,6 +1275,7 @@ if __name__ == "__main__":
     # Load per-city bias corrections from city_metadata.json.
     # bias_correction_f > 0 means we historically run cold (under-predict); add it to forecast.
     city_bias: dict[str, float] = {}
+    city_bias_by_condition: dict[str, dict[str, float]] = {}
     city_metadata_path = getattr(args, "city_metadata_json", "Data/city_metadata.json")
     if city_metadata_path and os.path.exists(city_metadata_path):
         try:
@@ -1282,9 +1283,15 @@ if __name__ == "__main__":
             with open(city_metadata_path) as _f:
                 _meta = _json.load(_f) or {}
             for _city, _info in (_meta.get("cities") or {}).items():
-                _bc = _info.get("bias_correction_f") if isinstance(_info, dict) else None
+                _city_key = str(_city).strip().lower()
+                if not isinstance(_info, dict):
+                    continue
+                _bc = _info.get("bias_correction_f")
                 if _bc is not None:
-                    city_bias[str(_city).strip().lower()] = float(_bc)
+                    city_bias[_city_key] = float(_bc)
+                _by_cond = _info.get("bias_correction_by_condition")
+                if isinstance(_by_cond, dict) and _by_cond:
+                    city_bias_by_condition[_city_key] = {str(k): float(v) for k, v in _by_cond.items()}
         except Exception:
             pass
 
@@ -1429,6 +1436,8 @@ if __name__ == "__main__":
                 city=city,
                 forecast_pred=mean_forecast,
                 bias_correction_f=city_bias.get(city, 0.0),
+                bias_correction_by_condition=city_bias_by_condition.get(city),
+                condition_token=condition_token,
             )
             mode_forecast_pred = _safe_float(candidate_modes.get("mode_forecast_pred"))
             mode_blend_pred = _safe_float(candidate_modes.get("mode_blend_pred"))

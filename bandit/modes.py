@@ -1,18 +1,34 @@
 from typing import Any
 
+# Token → coarse bucket (must match update_city_metadata.py).
+_CONDITION_BUCKET: dict[str, str] = {
+    "clear": "clear",
+    "partly_cloudy": "mixed",
+    "cloudy_overcast": "mixed",
+    "wind": "mixed",
+    "other": "mixed",
+    "rain": "precip",
+    "storm": "precip",
+    "fog": "precip",
+    "snow": "snow",
+}
+
 
 def compute_candidate_mode_predictions(
     *,
     city: str,
     forecast_pred: float | None,
     bias_correction_f: float = 0.0,
+    bias_correction_by_condition: dict[str, float] | None = None,
+    condition_token: str | None = None,
 ) -> dict[str, Any]:
     """
     Compute candidate predictions for each bandit action.
 
     Actions:
       - forecast: raw weighted-ensemble mean (no correction)
-      - blend:    forecast + bias_correction_f (calibrated to remove systematic cold bias)
+      - blend:    forecast + condition-stratified bias correction
+                  (falls back to bias_correction_f when no per-condition data)
 
     LSTM has been retired — it was 20-35°F off due to stale training data.
     """
@@ -20,7 +36,12 @@ def compute_candidate_mode_predictions(
 
     blend_val = None
     if forecast_val is not None:
+        # Prefer condition-specific correction when available.
         corr = float(bias_correction_f) if bias_correction_f else 0.0
+        if bias_correction_by_condition and condition_token:
+            bucket = _CONDITION_BUCKET.get(str(condition_token).strip().lower(), "mixed")
+            if bucket in bias_correction_by_condition:
+                corr = float(bias_correction_by_condition[bucket])
         blend_val = forecast_val + corr
 
     available = []

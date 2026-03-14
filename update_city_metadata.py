@@ -4,12 +4,28 @@ import datetime as dt
 import json
 import os
 
+# Map raw condition tokens → 4 coarse buckets used for stratified bias correction.
+_CONDITION_BUCKET: dict[str, str] = {
+    "clear": "clear",
+    "partly_cloudy": "mixed",
+    "cloudy_overcast": "mixed",
+    "wind": "mixed",
+    "other": "mixed",
+    "rain": "precip",
+    "storm": "precip",
+    "fog": "precip",
+    "snow": "snow",
+}
+CONDITION_BUCKETS = ("clear", "mixed", "precip", "snow")
+
 
 def _parse_args():
     p = argparse.ArgumentParser(description="Compute per-city historical MAE and write Data/city_metadata.json.")
     # Prefer source_performance.csv (doesn't require trades to settle), but keep compatibility
     # with the older daily_metrics.csv shape.
     p.add_argument("--metrics-csv", type=str, default="Data/source_performance.csv")
+    p.add_argument("--context-csv", type=str, default="Data/context_features_history.csv",
+                   help="context_features_history.csv for condition-stratified bias correction")
     p.add_argument("--out-json", type=str, default="Data/city_metadata.json")
     p.add_argument("--window-days", type=int, default=30, help="Lookback window (days) for historical MAE")
     p.add_argument("--as-of-date", type=str, default=None, help="YYYY-MM-DD (default: yesterday UTC)")
@@ -61,12 +77,34 @@ if __name__ == "__main__":
     start = as_of - dt.timedelta(days=int(args.window_days))
     end = as_of
 
+    # Build (city, trade_date) → condition_bucket lookup from context_features_history.
+    # Prefer decision_role=trade rows; fall back to first available row for that city+date.
+    condition_lookup: dict[tuple[str, str], str] = {}
+    if args.context_csv and os.path.exists(args.context_csv):
+        _trade_keys: set[tuple[str, str]] = set()
+        with open(args.context_csv, "r", newline="") as _cf:
+            for _row in csv.DictReader(_cf):
+                _city = (_row.get("city") or "").strip().lower()
+                _date = (_row.get("trade_date") or "").strip()
+                _token = (_row.get("condition_token") or "other").strip().lower()
+                _bucket = _CONDITION_BUCKET.get(_token, "mixed")
+                _role = (_row.get("decision_role") or "").strip().lower()
+                _key = (_city, _date)
+                if _role == "trade":
+                    condition_lookup[_key] = _bucket
+                    _trade_keys.add(_key)
+                elif _key not in _trade_keys:
+                    condition_lookup[_key] = _bucket
+
     sums: dict[str, float] = {}
     ns: dict[str, int] = {}
     # Signed bias: sum of (actual - predicted) for consensus source.
     # Positive = we run cold (under-predict), negative = we run hot.
     bias_sums: dict[str, float] = {}
     bias_ns: dict[str, int] = {}
+    # Per-condition-bucket signed bias: keyed by (city, bucket).
+    cond_bias_sums: dict[tuple[str, str], float] = {}
+    cond_bias_ns: dict[tuple[str, str], int] = {}
 
     with open(args.metrics_csv, "r", newline="") as f:
         r = csv.DictReader(f)
@@ -118,6 +156,12 @@ if __name__ == "__main__":
             if signed is not None:
                 bias_sums[city] = bias_sums.get(city, 0.0) + float(signed)
                 bias_ns[city] = bias_ns.get(city, 0) + 1
+                # Condition-stratified accumulation.
+                bucket = condition_lookup.get((city, d))
+                if bucket:
+                    ck = (city, bucket)
+                    cond_bias_sums[ck] = cond_bias_sums.get(ck, 0.0) + float(signed)
+                    cond_bias_ns[ck] = cond_bias_ns.get(ck, 0) + 1
 
     cities: dict[str, dict] = {}
     for city in sorted(set(list(sums.keys()) + list(ns.keys()))):
@@ -130,6 +174,15 @@ if __name__ == "__main__":
         if bias_ns.get(city, 0) > 0:
             entry["bias_correction_f"] = round(bias_sums[city] / bias_ns[city], 4)
             entry["bias_n_days"] = bias_ns[city]
+        # Per-condition-bucket corrections (fall back to bias_correction_f if bucket missing).
+        by_condition: dict[str, float] = {}
+        for bucket in CONDITION_BUCKETS:
+            ck = (city, bucket)
+            if cond_bias_ns.get(ck, 0) >= 3:  # require at least 3 days to trust the estimate
+                by_condition[bucket] = round(cond_bias_sums[ck] / cond_bias_ns[ck], 4)
+        if by_condition:
+            entry["bias_correction_by_condition"] = by_condition
+            entry["bias_condition_ns"] = {b: cond_bias_ns.get((city, b), 0) for b in CONDITION_BUCKETS}
         cities[city] = entry
 
     # If we found no consensus MAE rows, don't overwrite an existing metadata file with empties.
