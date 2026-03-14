@@ -23,9 +23,32 @@ This document describes the purpose and schema of the key data files used and ge
   ```
 
 ### `city_metadata.json`
-- **Purpose**: Stores city-specific historical constants like $MAE_{\text{historical}}$.
-- **Used by**: `kalshi_trader.py` (calculating $\sigma$).
-- **Updated by**: `update_city_metadata.py`.
+- **Purpose**: Stores city-specific historical MAE, flat bias correction, and condition-stratified bias corrections.
+- **Used by**: `kalshi_trader.py` (calculating $\sigma$), `intraday_pulse.py` (blend correction), `morning_trader.py` (mu correction).
+- **Updated by**: `update_city_metadata.py` (runs nightly via `scripts/run_settle.sh`).
+- **Schema**:
+  ```json
+  {
+    "as_of": "YYYY-MM-DD",
+    "window_days": 30,
+    "cities": {
+      "tx": {
+        "historical_MAE": 1.087,
+        "n_days": 38,
+        "bias_correction_f": 0.8125,
+        "bias_n_days": 38,
+        "bias_correction_by_condition": {
+          "clear":  0.036,
+          "mixed":  1.075,
+          "precip": 1.795
+        },
+        "bias_condition_ns": { "clear": 6, "mixed": 11, "precip": 6, "snow": 0 }
+      }
+    }
+  }
+  ```
+- **Condition buckets**: `clear` (clear sky), `mixed` (partly cloudy / overcast / wind), `precip` (rain / storm / fog), `snow`. A bucket is only written when ≥ 3 days of data exist; otherwise the flat `bias_correction_f` is used as fallback.
+- **Why it matters**: The flat correction was a single scalar per city (e.g. TX +0.81°F) applied regardless of weather. In reality clear-sky TX only needs +0.04°F while precip needs +1.80°F — a 45× difference. The bandit's `blend` action and `morning_trader.py` bucket selection both depend on an accurate `mu`; the wrong correction shifts the Gaussian into the wrong temperature range.
 
 ### `bandit_state.json`
 - **Purpose**: Stores contextual bandit LinUCB matrices and metadata.

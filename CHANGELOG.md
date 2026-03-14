@@ -6,6 +6,13 @@ A rough history of major changes, derived from git. For full details see the [do
 
 ## 2026
 
+### 2026-03 — Condition-stratified bias correction
+
+- **Changed** `update_city_metadata.py` now joins `source_performance.csv` with `context_features_history.csv` to compute per-city, per-condition-bucket signed bias corrections (`clear / mixed / precip / snow`), stored as `bias_correction_by_condition` in `city_metadata.json`. The flat `bias_correction_f` is retained as a fallback.
+- **Changed** `bandit/modes.py` `compute_candidate_mode_predictions` now accepts `bias_correction_by_condition` and `condition_token`, applying the condition-specific correction for the `blend` action instead of a uniform offset. This fixes `blend` consistently losing to `forecast` because a flat +0.8–1.0°F correction was overcorrecting in clear conditions.
+- **Changed** `intraday_pulse.py` loads and forwards condition-stratified corrections to the bandit mode computation.
+- **Fixed** `morning_trader.py` was buying wrong temperature buckets because the flat bias overcorrected `mu`, shifting the Gaussian into an adjacent range. Morning trader now reads today's condition token from `context_features_history.csv` and applies the condition-stratified correction before scoring buckets.
+
 ### 2026-03 — Trade log visibility
 
 - **Added** Recent trade-log summaries to the web dashboard, showing the latest per-city decisions for the last three trade dates.

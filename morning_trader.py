@@ -94,26 +94,97 @@ def _event_ticker_for(series: str, trade_date: str) -> str:
     return f"{series}-{d.strftime('%y%b%d').upper()}"
 
 
-def _load_bias(city_metadata_path: str) -> dict[str, float]:
-    """Return {city: bias_correction_f} from city_metadata.json (same source as 1PM blend mode)."""
+# Token → condition bucket (mirrors update_city_metadata.py / bandit/modes.py).
+_CONDITION_BUCKET: dict[str, str] = {
+    "clear": "clear",
+    "partly_cloudy": "mixed",
+    "cloudy_overcast": "mixed",
+    "wind": "mixed",
+    "other": "mixed",
+    "rain": "precip",
+    "storm": "precip",
+    "fog": "precip",
+    "snow": "snow",
+}
+
+
+def _load_bias(city_metadata_path: str) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    """Return (flat_bias, by_condition) dicts from city_metadata.json."""
+    flat: dict[str, float] = {}
+    by_cond: dict[str, dict[str, float]] = {}
     if not os.path.exists(city_metadata_path):
-        return {}
+        return flat, by_cond
     try:
         import json
         with open(city_metadata_path) as f:
             meta = json.load(f)
-        return {
-            city: float(data.get("bias_correction_f", 0.0))
-            for city, data in meta.get("cities", {}).items()
-        }
+        for city, data in meta.get("cities", {}).items():
+            city_key = str(city).strip().lower()
+            if not isinstance(data, dict):
+                continue
+            bc = data.get("bias_correction_f")
+            if bc is not None:
+                flat[city_key] = float(bc)
+            bcc = data.get("bias_correction_by_condition")
+            if isinstance(bcc, dict) and bcc:
+                by_cond[city_key] = {str(k): float(v) for k, v in bcc.items()}
     except Exception:
-        return {}
+        pass
+    return flat, by_cond
 
 
-def _load_predictions(path: str, trade_date: str, city_bias: dict[str, float]) -> dict[str, dict]:
+def _load_condition_tokens(context_csv: str, trade_date: str) -> dict[str, str]:
+    """Return {city: condition_token} for trade_date from context_features_history.csv.
+    Prefers decision_role=trade rows; falls back to first available row per city.
+    Written by the 7AM intraday pulse before morning_trader runs.
+    """
+    result: dict[str, str] = {}
+    trade_cities: set[str] = set()
+    if not os.path.exists(context_csv):
+        return result
+    try:
+        with open(context_csv, newline="") as f:
+            for row in csv.DictReader(f):
+                if (row.get("trade_date") or "").strip() != trade_date:
+                    continue
+                city = (row.get("city") or "").strip().lower()
+                token = (row.get("condition_token") or "other").strip().lower()
+                role = (row.get("decision_role") or "").strip().lower()
+                if role == "trade":
+                    result[city] = token
+                    trade_cities.add(city)
+                elif city not in trade_cities:
+                    result[city] = token
+    except Exception:
+        pass
+    return result
+
+
+def _resolve_bias(
+    city: str,
+    condition_token: str | None,
+    flat_bias: dict[str, float],
+    by_condition: dict[str, dict[str, float]],
+) -> float:
+    """Pick the best available bias correction for this city + condition."""
+    cond_map = by_condition.get(city)
+    if cond_map and condition_token:
+        bucket = _CONDITION_BUCKET.get(condition_token, "mixed")
+        if bucket in cond_map:
+            return cond_map[bucket]
+    return flat_bias.get(city, 0.0)
+
+
+def _load_predictions(
+    path: str,
+    trade_date: str,
+    flat_bias: dict[str, float],
+    by_condition: dict[str, dict[str, float]] | None = None,
+    condition_tokens: dict[str, str] | None = None,
+) -> dict[str, dict]:
     """Return {city: {mu, sigma, spread_f, confidence_score}} from predictions_latest.csv.
-    mu is bias-corrected (same as the 1PM bandit's blend mode) so bucket selection
-    reflects the same adjusted prediction used for live trades.
+    mu is bias-corrected using condition-stratified corrections where available,
+    falling back to the flat per-city correction.
     """
     result: dict[str, dict] = {}
     if not os.path.exists(path):
@@ -134,8 +205,8 @@ def _load_predictions(path: str, trade_date: str, city_bias: dict[str, float]) -
                 sigma_raw = float(row.get("spread_f") or "")
             except (ValueError, TypeError):
                 sigma_raw = 2.0
-            # Apply bias correction — same +X°F shift the 1PM bandit uses for blend mode.
-            bias = city_bias.get(city, 0.0)
+            token = (condition_tokens or {}).get(city)
+            bias = _resolve_bias(city, token, flat_bias, by_condition or {})
             mu = mu_raw + bias
             # Use at least 2°F sigma so tail probabilities aren't near-zero.
             sigma = max(2.0, sigma_raw)
@@ -143,6 +214,7 @@ def _load_predictions(path: str, trade_date: str, city_bias: dict[str, float]) -
                 "mu": mu,
                 "mu_raw": mu_raw,
                 "bias": bias,
+                "condition_token": token or "unknown",
                 "sigma": sigma,
                 "spread_f": sigma_raw,
                 "confidence_score": row.get("confidence_score", ""),
@@ -515,6 +587,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--entries-csv", type=str, default=MORNING_ENTRIES_CSV)
     p.add_argument("--history-csv", type=str, default=MARKET_PRICE_HISTORY_CSV)
     p.add_argument("--city-metadata", type=str, default="Data/city_metadata.json")
+    p.add_argument("--context-csv", type=str, default="Data/context_features_history.csv",
+                   help="context_features_history.csv written by the 7AM pulse (for condition-stratified bias).")
     p.add_argument(
         "--morning-budget",
         type=float,
@@ -597,8 +671,15 @@ if __name__ == "__main__":
         private_key_path=args.private_key_path,
     )
 
-    city_bias = _load_bias(args.city_metadata)
-    city_predictions = _load_predictions(args.predictions_csv, args.trade_date, city_bias)
+    flat_bias, by_condition = _load_bias(args.city_metadata)
+    condition_tokens = _load_condition_tokens(args.context_csv, args.trade_date)
+    city_predictions = _load_predictions(
+        args.predictions_csv,
+        args.trade_date,
+        flat_bias,
+        by_condition=by_condition,
+        condition_tokens=condition_tokens,
+    )
     if not city_predictions:
         print(
             f"[morning_trader] No predictions found for {args.trade_date} in {args.predictions_csv}",
@@ -612,7 +693,7 @@ if __name__ == "__main__":
         f"kelly_fraction={args.kelly_fraction} send_orders={args.send_orders}"
     )
     for city, pred in city_predictions.items():
-        bias_str = f" (raw={pred['mu_raw']:.2f} + bias={pred['bias']:+.3f}°F)" if pred.get('bias') else ""
+        bias_str = f" (raw={pred['mu_raw']:.2f} + bias={pred['bias']:+.3f}°F [{pred.get('condition_token','?')}])" if pred.get('bias') else ""
         print(f"  {city}: mu={pred['mu']:.2f}°F sigma={pred['sigma']:.2f}°F{bias_str}")
 
     entries = scan_and_enter(

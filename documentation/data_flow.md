@@ -58,6 +58,17 @@ Updated by the nightly calibration job (`calibrate_sources.py`) once NWS CLI “
 
 Cron runs at :00 and :30 (hours 0–16). For each city, fetches provider forecasts; mean forecast \(\mu = \sum_i w_i x_i\) (uses `Data/weights.json` or equal weights); snapshot spread \(\sigma_{\text{snapshot}} = \text{pstdev}(\{x_i\})\). Outputs: `Data/intraday_forecasts.csv`, and with `--write-predictions`: `Data/predictions_latest.csv`, `Data/predictions_history.csv`.
 
+### Bias correction (`city_metadata.json`)
+
+The consensus forecast has a systematic cold bias (~0.5–1.0°F depending on city and conditions). `update_city_metadata.py` computes the correction as the rolling mean of `(actual_tmax − predicted_tmax)` over `--window-days` (default 30). Two corrections are stored per city:
+
+- **`bias_correction_f`** — flat scalar, used as fallback.
+- **`bias_correction_by_condition`** — per-condition-bucket corrections for `clear / mixed / precip / snow`. Computed by joining `source_performance.csv` with `context_features_history.csv` on `city + trade_date`. Requires ≥ 3 days per bucket.
+
+Example (TX, 30-day window): clear=+0.04°F, mixed=+1.08°F, precip=+1.79°F. The flat scalar (+0.81°F) was overcorrecting by ~0.77°F on clear days and undercorrecting by ~1.0°F on precip days.
+
+The `blend` bandit action is defined as `forecast + condition_correction`; `morning_trader.py` applies the same correction before computing bucket probabilities.
+
 ### Trading sigma (`kalshi_trader.py`)
 
 \(\sigma = \max(spread\_f,\ historical\_MAE)\) where `historical_MAE` is from `Data/city_metadata.json`. Used for bucket probabilities and EV.
@@ -84,13 +95,36 @@ For each city: `sigma = max(current_spread, historical_MAE)` so predictable citi
 
 ## 8) Contextual bandit (mode selection)
 
-`intraday_pulse.py` can log weather context and mode-selection decisions for `forecast` / `blend` / `lstm`:
+`intraday_pulse.py` runs a LinUCB contextual bandit that selects between `forecast` and `blend` per city per trade decision. LSTM was retired as an action (stale training data; 20–35°F errors).
 
-- **Context telemetry**: `Data/context_features_history.csv` (condition token/label, sky label, cloud proxy, vote entropy, provider count, spread).
-- **Decisions**: `Data/bandit_decisions_history.csv` (selected action, applied action, guardrail reason, candidate predictions, feature vector).
-- **State**: `Data/bandit_state.json` (LinUCB matrices).
+**Actions:**
+- `forecast` — raw weighted-ensemble mean; no correction applied.
+- `blend` — `forecast + bias_correction_by_condition[bucket]`; falls back to flat `bias_correction_f` when a bucket has < 3 samples. Lookup key is the current `condition_token` mapped to `clear / mixed / precip / snow`.
+
+**Feature vector (22 dims):** city one-hot (4), day-of-year sin/cos (2), spread_scaled, provider_count_scaled, mean_cloud_cover_scaled, vote_entropy, weather token weights (9: clear, partly_cloudy, cloudy_overcast, rain, snow, storm, fog, wind, other), sky labels (3: sunny, mixed, cloudy).
+
+**Guardrails** — bandit selection is overridden back to `forecast` if:
+- `spread_guardrail`: market spread > 3.0°F (`--bandit-max-spread`)
+- `confidence_guardrail`: UCB confidence score < 0.35 (`--bandit-min-confidence`)
+- `deviation_guardrail`: |blend_pred − forecast_pred| > 6°F (`--bandit-max-deviation-f`)
+
+**Modes** (set via `WT_BANDIT_MODE` env var or `--bandit-mode`):
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` | Always uses `forecast`; bandit disabled |
+| `shadow` | Bandit selects but never applies (pure logging) |
+| `canary` | Applies bandit for one city (`--bandit-canary-city`, default `ny`) |
+| `live` | Applies bandit for all 4 cities (default in `scripts/run_trade.sh`) |
+
+**Data files:**
+- `Data/context_features_history.csv` — condition token/label, sky label, cloud proxy, vote entropy, provider count, spread per run.
+- `Data/bandit_decisions_history.csv` — selected vs applied action, guardrail reason, candidate predictions, feature vector.
+- `Data/bandit_state.json` — LinUCB A/b matrices and theta vectors (atomically written).
 
 Nightly update (`bandit_update.py`, called from `scripts/run_calibrate.sh`) joins settled actuals from `Data/source_performance.csv` to compute rewards and update the policy:
 
-- **Rewards**: `Data/bandit_rewards_history.csv`
-- **State snapshots**: `Data/bandit_state_snapshots.csv`
+- `Data/bandit_rewards_history.csv` — per-city error and normalised reward for each action post-settlement.
+- `Data/bandit_state_snapshots.csv` — daily policy snapshots for auditing drift.
+
+**Learning signal:** reward = `1 − |error| / 5` (clipped 0–1), favouring the action with smaller absolute temperature error. The bandit learns which condition contexts favour `blend` over `forecast` — e.g. rainy/stormy days where the cold bias is large benefit most from correction, while clear days are already well-calibrated and overcorrection hurts.
