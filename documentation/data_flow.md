@@ -128,3 +128,30 @@ Nightly update (`bandit_update.py`, called from `scripts/run_calibrate.sh`) join
 - `Data/bandit_state_snapshots.csv` — daily policy snapshots for auditing drift.
 
 **Learning signal:** reward = `1 − |error| / 5` (clipped 0–1), favouring the action with smaller absolute temperature error. The bandit learns which condition contexts favour `blend` over `forecast` — e.g. rainy/stormy days where the cold bias is large benefit most from correction, while clear days are already well-calibrated and overcorrection hurts.
+
+## 9) Morning Kelly strategy (10 AM entry)
+
+`morning_trader.py` runs at **10:00 ET** (before the 1 PM afternoon trade window), using the same bias-corrected `mu` as the bandit `blend` action. The intraday MAE at 10 AM (~2.4°F overall; FL ~3.6°F) is meaningfully better than the 7 AM baseline but liquidity is still healthy before the afternoon settlement window.
+
+### Entry
+
+- `intraday_pulse.py` runs first (inside `run_morning_trade.sh`) to refresh predictions.
+- `morning_trader.py` loads `predictions_latest.csv` and `city_metadata.json`, applies the condition-stratified bias correction, and scores all Kalshi buckets with a Gaussian CDF.
+- Buys the highest positive-Kelly bucket per city (ask ≤ 25¢; fractional Kelly sizing).
+- Writes one row to `Data/morning_entries.csv` per city, recording `mu_pred` and `sigma_pred` at buy time — these are frozen at entry so later `intraday_pulse` runs that overwrite `predictions_latest.csv` do not contaminate the MAE calculation.
+- Immediately places a resting limit sell at `target_exit_price` (Kelly-implied exit) and records the Kalshi order ID in `exit_order_id`.
+
+### Intraday exit management (`exit_manager.py`)
+
+Runs every 30 minutes (10:30, 11:00, 11:30, 12:00 ET) checking each open position:
+
+1. **Observation-based danger exit**: reads `projected_high` from `Data/observations_latest.json`. If `projected_high > bucket_hi + 1.5°F` (too hot) or `projected_high < bucket_lo − 1.5°F` (too cold), cancels the resting sell and places an aggressive sell at `bid − 1¢`. Status → `obs_exit`.
+2. **Win capture**: if `projected_high` is within the bucket and `yes_bid ≥ 85% of target_exit_price`, places an immediate sell at bid to lock in the win early. Status → `obs_exit`.
+3. **Fill check**: if `status = limit_placed` and the order is no longer resting (filled), sets `status = filled`.
+4. **Retry**: if `status = open` (sell placement failed at entry), retries the limit sell.
+
+**12:30 ET cleanup pass** (`--cleanup`): cancels any unfilled limit sells and marks positions `settled` so they resolve via the normal 1 PM settlement mechanism.
+
+### Separate MAE tracking
+
+`update_city_metadata.py` reads `morning_entries.csv`, joins `mu_pred` against settled actuals from `source_performance.csv`, and writes `historical_MAE_morning` to `city_metadata.json`. This keeps the 10 AM error distribution separate from the 1 PM consensus MAE so neither window skews the other's σ baseline.

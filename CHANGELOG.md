@@ -6,6 +6,15 @@ A rough history of major changes, derived from git. For full details see the [do
 
 ## 2026
 
+### 2026-03 — 10 AM morning strategy with observation-based exits
+
+- **Changed** Morning Kelly trade moved from 07:15 to **10:00 ET** (crontab). Empirical intraday MAE at 10:00 (~2.4°F overall, FL ~3.6°F) is meaningfully better than the 07:00 baseline (~2.6–3.8°F), and order-book liquidity is still healthy before the afternoon settlement window.
+- **Changed** Exit manager now runs every 30 minutes (10:30, 11:00, 11:30, 12:00) instead of hourly from 09:00, giving tighter exit cadence after the 10:00 entry.
+- **Added** `exit_manager.py` observation-based exit trigger: reads `observations_latest.json` on each check pass. If `projected_high > bucket_hi + 1.5°F` (too hot) or `projected_high < bucket_lo - 1.5°F` (too cold), cancels the resting profit-take sell and places an aggressive sell at `bid − 1¢` to cut the loss. If `projected_high` is within the bucket and `yes_bid ≥ 85% of target_exit_price`, places an immediate sell at bid to capture the win early. Threshold configurable via `--danger-threshold-f`.
+- **Added** `mu_pred` and `sigma_pred` columns to `morning_entries.csv` — records the exact bias-corrected forecast used at buy time, independent of later intraday-pulse updates that overwrite `predictions_latest.csv`.
+- **Added** `historical_MAE_morning` to `city_metadata.json` — computed by `update_city_metadata.py --morning-entries-csv` from morning entries joined against settled actuals. Kept separate from `historical_MAE` (1 PM consensus) so the two windows don't skew each other's sigma baselines.
+- **Fixed** `observations_history.csv` schema mismatch: the file was written with an 8-column header but rows contained 11 columns (`observed_high_today`, `projected_high`, `time_temp_will_max` were appended without updating the header). `web_dashboard_api.py` now calls `_migrate_observations_csv()` on each write cycle, atomically rewriting the file with the correct header on first detection.
+
 ### 2026-03 — Condition-stratified bias correction
 
 - **Changed** `update_city_metadata.py` now joins `source_performance.csv` with `context_features_history.csv` to compute per-city, per-condition-bucket signed bias corrections (`clear / mixed / precip / snow`), stored as `bias_correction_by_condition` in `city_metadata.json`. The flat `bias_correction_f` is retained as a fallback.

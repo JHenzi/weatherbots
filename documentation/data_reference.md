@@ -23,8 +23,8 @@ This document describes the purpose and schema of the key data files used and ge
   ```
 
 ### `city_metadata.json`
-- **Purpose**: Stores city-specific historical MAE, flat bias correction, and condition-stratified bias corrections.
-- **Used by**: `kalshi_trader.py` (calculating $\sigma$), `intraday_pulse.py` (blend correction), `morning_trader.py` (mu correction).
+- **Purpose**: Stores city-specific historical MAE, flat bias correction, condition-stratified bias corrections, and separate 10 AM MAE.
+- **Used by**: `kalshi_trader.py` (calculating $\sigma$), `intraday_pulse.py` (blend correction), `morning_trader.py` (mu correction and sigma baseline).
 - **Updated by**: `update_city_metadata.py` (runs nightly via `scripts/run_settle.sh`).
 - **Schema**:
   ```json
@@ -35,6 +35,8 @@ This document describes the purpose and schema of the key data files used and ge
       "tx": {
         "historical_MAE": 1.087,
         "n_days": 38,
+        "historical_MAE_morning": 2.41,
+        "morning_mae_n": 12,
         "bias_correction_f": 0.8125,
         "bias_n_days": 38,
         "bias_correction_by_condition": {
@@ -47,6 +49,8 @@ This document describes the purpose and schema of the key data files used and ge
     }
   }
   ```
+- **`historical_MAE`**: 1 PM consensus window MAE — used by `kalshi_trader.py` as σ baseline for afternoon trades.
+- **`historical_MAE_morning`**: 10 AM entry MAE computed from `morning_entries.csv` `mu_pred` vs settled actuals. Kept separate so the wider morning uncertainty doesn't inflate the 1 PM σ baseline. Used by `morning_trader.py` as the σ baseline for Kelly sizing.
 - **Condition buckets**: `clear` (clear sky), `mixed` (partly cloudy / overcast / wind), `precip` (rain / storm / fog), `snow`. A bucket is only written when ≥ 3 days of data exist; otherwise the flat `bias_correction_f` is used as fallback.
 - **Why it matters**: The flat correction was a single scalar per city (e.g. TX +0.81°F) applied regardless of weather. In reality clear-sky TX only needs +0.04°F while precip needs +1.80°F — a 45× difference. The bandit's `blend` action and `morning_trader.py` bucket selection both depend on an accurate `mu`; the wrong correction shifts the Gaussian into the wrong temperature range.
 
@@ -57,8 +61,40 @@ This document describes the purpose and schema of the key data files used and ge
 
 ## Operational Logs
 
+### `morning_entries.csv`
+- **Purpose**: Tracks every position entered by the 10 AM morning Kelly strategy. One row per city per trade date. Updated by `exit_manager.py` as the position progresses.
+- **Updated by**: `morning_trader.py` (creates row at entry), `exit_manager.py` (updates status/exit fields).
+- **Key Columns**:
+
+| Column | Description |
+|---|---|
+| `logged_at` | ISO timestamp of the buy |
+| `trade_date` | YYYY-MM-DD |
+| `city` | ny / il / tx / fl |
+| `series_ticker` | Kalshi series (e.g. `KXHIGHNY`) |
+| `event_ticker` | Kalshi event |
+| `market_ticker` | Kalshi market for the specific bucket |
+| `market_subtitle` | Human-readable bucket label |
+| `bucket_lo` | Lower temperature bound (°F) |
+| `bucket_hi` | Upper temperature bound (°F) |
+| `entry_price` | Buy price in cents |
+| `model_prob` | Model probability for this bucket |
+| `kelly` | Fractional Kelly fraction used |
+| `count` | Contracts purchased |
+| `target_exit_price` | Resting limit-sell price in cents |
+| `mu_pred` | Bias-corrected forecast μ at buy time — used for 10 AM MAE tracking independent of later pulse updates |
+| `sigma_pred` | Forecast σ at buy time |
+| `exit_order_id` | Kalshi order ID of the resting limit sell |
+| `exit_price_filled` | Fill price if filled |
+| `exit_ts` | ISO timestamp of exit |
+| `send_orders` | Whether live orders were sent |
+| `status` | `open` → `limit_placed` → `filled` / `settled` / `obs_exit` / `cancelled` / `shadow` / `error` |
+
+- **`status` lifecycle**: `open` (bought, sell not yet placed) → `limit_placed` (resting sell on book) → `filled` (limit hit), `obs_exit` (observation-triggered aggressive sell), `settled` (cleanup pass — position goes to 1 PM settlement), or `cancelled`/`error`.
+
 ### `observations_history.csv`
 - **Purpose**: Per-station observation snapshots throughout the day for backtesting when we "learn" the peak temperature. Written by the dashboard API observation loop.
+- **Schema note**: Prior to 2026-03 the file was written with an 8-column header but rows contained 11 columns. `web_dashboard_api.py` now calls `_migrate_observations_csv()` on each write cycle to atomically rewrite the file with the correct 11-column header on first detection.
 - **Key Columns**: `timestamp`, `city`, `stid`, `temp`, `observed_high_today`, `projected_high`, `trend_10m`, `trend_30m`, `trend_1h`, `acceleration`, `time_temp_will_max` (ISO time when temp will max, from solar model).
 
 ### `predictions_history.csv`
