@@ -68,6 +68,8 @@ MORNING_ENTRIES_COLS = [
     "kelly",
     "count",
     "target_exit_price",
+    "mu_pred",     # bias-corrected forecast mu used at entry — for 10 AM MAE tracking
+    "sigma_pred",  # forecast sigma used at entry
     "exit_order_id",
     "exit_price_filled",
     "exit_ts",
@@ -489,6 +491,8 @@ def scan_and_enter(
                 "kelly": f"{k:.4f}",
                 "count": count,
                 "target_exit_price": target_exit,
+                "mu_pred": f"{mu:.4f}",
+                "sigma_pred": f"{sigma:.4f}",
                 "exit_order_id": "",
                 "exit_price_filled": "",
                 "exit_ts": "",

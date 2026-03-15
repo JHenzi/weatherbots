@@ -29,6 +29,13 @@ def _parse_args():
     p.add_argument("--out-json", type=str, default="Data/city_metadata.json")
     p.add_argument("--window-days", type=int, default=30, help="Lookback window (days) for historical MAE")
     p.add_argument("--as-of-date", type=str, default=None, help="YYYY-MM-DD (default: yesterday UTC)")
+    p.add_argument(
+        "--morning-entries-csv",
+        type=str,
+        default="Data/morning_entries.csv",
+        help="morning_entries.csv — used to compute historical_MAE_morning separately from "
+             "the consensus (1PM) MAE so the two trading windows don't skew each other.",
+    )
     return p.parse_args()
 
 
@@ -163,6 +170,49 @@ if __name__ == "__main__":
                     cond_bias_sums[ck] = cond_bias_sums.get(ck, 0.0) + float(signed)
                     cond_bias_ns[ck] = cond_bias_ns.get(ck, 0) + 1
 
+    # --- 10 AM MAE: read morning_entries.csv, join mu_pred against settled actuals. ---
+    # morning_entries rows must have mu_pred (added when buy at 10:00 was implemented).
+    # Rows without mu_pred are skipped so old shadow entries don't pollute the metric.
+    morning_mae_sums: dict[str, float] = {}
+    morning_mae_ns: dict[str, int] = {}
+    # Collect settled actuals once (already in the actuals_by_date dict we build inline here).
+    settled_actuals: dict[tuple[str, str], float] = {}
+    with open(args.metrics_csv, "r", newline="") as _f:
+        for _row in csv.DictReader(_f):
+            _city = (_row.get("city") or "").strip()
+            _date = (_row.get("date") or "").strip()
+            _actual = _safe_float(_row.get("actual_tmax"))
+            if _city and _date and _actual is not None:
+                settled_actuals[(_city, _date)] = _actual
+
+    if os.path.exists(args.morning_entries_csv):
+        with open(args.morning_entries_csv, "r", newline="") as _mf:
+            for _row in csv.DictReader(_mf):
+                _city = (_row.get("city") or "").strip().lower()
+                _date = (_row.get("trade_date") or "").strip()
+                _mu_str = (_row.get("mu_pred") or "").strip()
+                _status = (_row.get("status") or "").strip()
+                # Only count rows that reached a real exit (not shadow/error/open).
+                if _status in ("shadow", "error", "open", ""):
+                    continue
+                if not _mu_str:
+                    continue
+                _mu = _safe_float(_mu_str)
+                if _mu is None:
+                    continue
+                try:
+                    _dd = dt.datetime.strptime(_date, "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                if _dd < start or _dd > end:
+                    continue
+                _actual = settled_actuals.get((_city, _date))
+                if _actual is None:
+                    continue
+                _err = abs(_mu - _actual)
+                morning_mae_sums[_city] = morning_mae_sums.get(_city, 0.0) + _err
+                morning_mae_ns[_city] = morning_mae_ns.get(_city, 0) + 1
+
     cities: dict[str, dict] = {}
     for city in sorted(set(list(sums.keys()) + list(ns.keys()))):
         if ns.get(city, 0) <= 0:
@@ -171,6 +221,11 @@ if __name__ == "__main__":
             "historical_MAE": sums[city] / ns[city],
             "n_days": ns[city],
         }
+        if morning_mae_ns.get(city, 0) > 0:
+            entry["historical_MAE_morning"] = round(
+                morning_mae_sums[city] / morning_mae_ns[city], 4
+            )
+            entry["morning_mae_n"] = morning_mae_ns[city]
         if bias_ns.get(city, 0) > 0:
             entry["bias_correction_f"] = round(bias_sums[city] / bias_ns[city], 4)
             entry["bias_n_days"] = bias_ns[city]

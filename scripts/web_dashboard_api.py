@@ -186,6 +186,49 @@ def _process_station(city: str, stid: str) -> Optional[Dict[str, Any]]:
         "time_temp_will_max": time_temp_will_max,
     }
 
+def _migrate_observations_csv(path, fieldnames: list[str]) -> None:
+    """Rewrite observations_history.csv if its header doesn't match fieldnames.
+
+    Old files were written with only 8 columns; the three newer columns
+    (observed_high_today, projected_high, time_temp_will_max) were appended to
+    data rows without updating the header.  This migration reads all raw rows,
+    maps them to the canonical 11-column schema, and rewrites the file once.
+    Rows with fewer than 11 raw values get empty strings for the missing columns.
+    """
+    import pathlib
+    p = pathlib.Path(path)
+    if not p.exists():
+        return
+    try:
+        with open(p, newline="") as f:
+            first_line = f.readline().rstrip("\n")
+        if first_line == ",".join(fieldnames):
+            return  # header already correct
+        # Header is wrong — re-read as raw rows and remap.
+        import csv as _csv
+        with open(p, newline="") as f:
+            raw_rows = list(_csv.reader(f))
+        if not raw_rows:
+            return
+        # Skip the old (partial) header row.
+        data_rows = raw_rows[1:] if raw_rows[0][0] == "timestamp" else raw_rows
+        rewritten: list[dict] = []
+        for cols in data_rows:
+            if not cols:
+                continue
+            padded = cols + [""] * (len(fieldnames) - len(cols))
+            rewritten.append(dict(zip(fieldnames, padded)))
+        tmp = p.with_suffix(".csv.migrating")
+        with open(tmp, "w", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            w.writerows(rewritten)
+        tmp.replace(p)
+    except Exception as exc:
+        import sys
+        print(f"[obs_migrate] warning: could not migrate {path}: {exc}", file=sys.stderr)
+
+
 def _run_observation_fetch() -> None:
     """Sync fetch; call from thread or asyncio.to_thread."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -199,8 +242,9 @@ def _run_observation_fetch() -> None:
     payload = {"last_update": dt.datetime.now(tz=dt.timezone.utc).isoformat(), "stations": results}
     with open(OBSERVATIONS_JSON, "w") as f:
         json.dump(payload, f, indent=2)
-    write_header = not OBSERVATIONS_HISTORY_CSV.exists()
     fieldnames = ["timestamp", "city", "stid", "temp", "observed_high_today", "projected_high", "trend_10m", "trend_30m", "trend_1h", "acceleration", "time_temp_will_max"]
+    _migrate_observations_csv(OBSERVATIONS_HISTORY_CSV, fieldnames)
+    write_header = not OBSERVATIONS_HISTORY_CSV.exists()
     with open(OBSERVATIONS_HISTORY_CSV, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:

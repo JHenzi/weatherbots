@@ -30,11 +30,16 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 6 * * * cd /app && /bin/bash /app/scripts/run_calibrate.sh 2>&1 | tee -a /app/Data/logs/calibrate.cron.log
 15 7 * * * cd /app && /bin/bash /app/scripts/run_settle.sh 2>&1 | tee -a /app/Data/logs/settle.cron.log
 
-# Morning Kelly market-making strategy (runs independently of the 1PM confident-mu trades).
-# 7:15 ET: scan all buckets for positive-Kelly opportunities, buy cheap tails (≤25¢), log to morning_entries.csv.
-15 7 * * * cd /app && /bin/bash /app/scripts/run_morning_trade.sh 2>&1 | tee -a /app/Data/logs/morning_trade.cron.log
-# 9AM-12PM ET: check hourly if any positions hit their limit-sell target.
-0 9,10,11,12 * * * cd /app && /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+# Morning Kelly strategy: buy at 10 AM local when providers have morning readings in.
+# MAE at 10:00 ET (~2.4°F overall; FL ~3.6°F) vs 1PM (~2.0°F) — the improvement
+# is worth the better order-book liquidity and the 3-hour exit window.
+# intraday_pulse runs first inside run_morning_trade.sh to refresh predictions.
+0 10 * * * cd /app && /bin/bash /app/scripts/run_morning_trade.sh 2>&1 | tee -a /app/Data/logs/morning_trade.cron.log
+# 10:30 AM-12:30 PM ET: check every 30 min for observation-based danger exits or limit-sell fills.
+30 10 * * * cd /app && /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+0 11 * * * cd /app && /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+30 11 * * * cd /app && /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+0 12 * * * cd /app && /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
 # 12:30 ET: cleanup pass — cancel any unfilled limit sells so positions settle normally at 1PM.
 30 12 * * * cd /app && CLEANUP=true /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
 
