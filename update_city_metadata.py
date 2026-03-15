@@ -112,6 +112,9 @@ if __name__ == "__main__":
     # Per-condition-bucket signed bias: keyed by (city, bucket).
     cond_bias_sums: dict[tuple[str, str], float] = {}
     cond_bias_ns: dict[tuple[str, str], int] = {}
+    # Per-condition-bucket absolute MAE: used for condition-aware confidence multiplier.
+    cond_mae_sums: dict[tuple[str, str], float] = {}
+    cond_mae_ns: dict[tuple[str, str], int] = {}
 
     with open(args.metrics_csv, "r", newline="") as f:
         r = csv.DictReader(f)
@@ -169,6 +172,8 @@ if __name__ == "__main__":
                     ck = (city, bucket)
                     cond_bias_sums[ck] = cond_bias_sums.get(ck, 0.0) + float(signed)
                     cond_bias_ns[ck] = cond_bias_ns.get(ck, 0) + 1
+                    cond_mae_sums[ck] = cond_mae_sums.get(ck, 0.0) + float(v)
+                    cond_mae_ns[ck] = cond_mae_ns.get(ck, 0) + 1
 
     # --- 10 AM MAE: read morning_entries.csv, join mu_pred against settled actuals. ---
     # morning_entries rows must have mu_pred (added when buy at 10:00 was implemented).
@@ -238,6 +243,14 @@ if __name__ == "__main__":
         if by_condition:
             entry["bias_correction_by_condition"] = by_condition
             entry["bias_condition_ns"] = {b: cond_bias_ns.get((city, b), 0) for b in CONDITION_BUCKETS}
+        # Per-condition MAE (absolute): drives condition-aware confidence in intraday_pulse.
+        mae_by_cond: dict[str, float] = {}
+        for bucket in CONDITION_BUCKETS:
+            ck = (city, bucket)
+            if cond_mae_ns.get(ck, 0) >= 3:
+                mae_by_cond[bucket] = round(cond_mae_sums[ck] / cond_mae_ns[ck], 4)
+        if mae_by_cond:
+            entry["mae_by_condition"] = mae_by_cond
         cities[city] = entry
 
     # If we found no consensus MAE rows, don't overwrite an existing metadata file with empties.

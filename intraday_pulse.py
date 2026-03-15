@@ -152,6 +152,51 @@ def _try_call(fn, *args, **kwargs):
         return None
 
 
+_CONDITION_BUCKET: dict[str, str] = {
+    "clear": "clear",
+    "partly_cloudy": "mixed",
+    "cloudy_overcast": "mixed",
+    "wind": "mixed",
+    "other": "mixed",
+    "rain": "precip",
+    "storm": "precip",
+    "fog": "precip",
+    "snow": "snow",
+}
+
+
+def _condition_confidence_factor(
+    condition_token: str,
+    vote_entropy: float,
+    mae_by_condition: dict[str, float] | None,
+    base_mae: float | None,
+) -> float:
+    """
+    Learned condition-aware confidence multiplier.
+
+    Computes the ratio of skill for the current condition vs the city's average skill using
+    the same _mae_to_skill curve. Clear-sky days with historically low MAE get a boost;
+    stormy/snow days with high MAE get a penalty. vote_entropy adds an independent penalty
+    when providers disagree on what the conditions even are.
+
+    Returns a multiplier in [0.70, 1.15]. Falls back to 1.0 if no per-condition data.
+    """
+    if not mae_by_condition or base_mae is None or base_mae <= 0:
+        return 1.0
+    bucket = _CONDITION_BUCKET.get(condition_token, "mixed")
+    cond_mae = mae_by_condition.get(bucket)
+    if cond_mae is None:
+        return 1.0
+    base_skill = _mae_to_skill(base_mae)
+    if base_skill <= 0:
+        return 1.0
+    cond_skill = _mae_to_skill(cond_mae)
+    ratio = cond_skill / base_skill
+    # vote_entropy in [0,1]: high entropy = providers disagree on conditions → up to 10% penalty
+    entropy_penalty = 0.10 * float(vote_entropy)
+    return max(0.70, min(1.15, ratio - entropy_penalty))
+
+
 def _confidence_from_spread(spread_f: float) -> float:
     # Match run_daily.py behavior.
     if spread_f <= 1.5:
@@ -1276,6 +1321,8 @@ if __name__ == "__main__":
     # bias_correction_f > 0 means we historically run cold (under-predict); add it to forecast.
     city_bias: dict[str, float] = {}
     city_bias_by_condition: dict[str, dict[str, float]] = {}
+    city_mae_by_condition: dict[str, dict[str, float]] = {}
+    city_historical_mae: dict[str, float] = {}
     city_metadata_path = getattr(args, "city_metadata_json", "Data/city_metadata.json")
     if city_metadata_path and os.path.exists(city_metadata_path):
         try:
@@ -1292,6 +1339,12 @@ if __name__ == "__main__":
                 _by_cond = _info.get("bias_correction_by_condition")
                 if isinstance(_by_cond, dict) and _by_cond:
                     city_bias_by_condition[_city_key] = {str(k): float(v) for k, v in _by_cond.items()}
+                _mae_cond = _info.get("mae_by_condition")
+                if isinstance(_mae_cond, dict) and _mae_cond:
+                    city_mae_by_condition[_city_key] = {str(k): float(v) for k, v in _mae_cond.items()}
+                _base_mae = _info.get("historical_MAE")
+                if _base_mae is not None:
+                    city_historical_mae[_city_key] = float(_base_mae)
         except Exception:
             pass
 
@@ -1405,11 +1458,6 @@ if __name__ == "__main__":
                 if max_src_dev > float(args.max_source_divergence_f):
                     sigma = max(sigma, max_src_dev / 2.0)
 
-            spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
-            spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
-            skill_conf = _skill_from_weights(weights_used, mae_map=mae_map)
-            conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
-
             context_vote = vote_provider_conditions(
                 provider_contexts,
                 provider_weights=weights_used if weights_used else None,
@@ -1420,6 +1468,23 @@ if __name__ == "__main__":
             sky_label = str(context_vote.get("sky_label") or "mixed").strip().lower()
             mean_cloud_cover = _safe_float(context_vote.get("mean_cloud_cover"))
             vote_entropy = _safe_float(context_vote.get("vote_entropy")) or 0.0
+
+            spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
+            spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
+            skill_conf = _skill_from_weights(weights_used, mae_map=mae_map)
+            conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
+
+            # Apply condition-aware multiplier: learned MAE per condition bucket relative to city
+            # average. Clear/sunny days get a boost; precip/storm days get a penalty.
+            # vote_entropy independently penalizes provider disagreement on conditions.
+            if conf_final is not None:
+                cond_factor = _condition_confidence_factor(
+                    condition_token,
+                    vote_entropy,
+                    city_mae_by_condition.get(city),
+                    city_historical_mae.get(city),
+                )
+                conf_final = max(0.0, min(1.0, conf_final * cond_factor))
 
             # 4) Conviction score: blend confidence with stability of recent provider skews.
             conviction_score: float | None
