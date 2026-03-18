@@ -1,75 +1,96 @@
 {
-  "as_of": "2026-03-14",
+  "as_of": "2026-03-16",
   "cities": {
     "fl": {
       "bias_condition_ns": {
         "clear": 3,
         "mixed": 12,
-        "precip": 9,
+        "precip": 11,
         "snow": 0
       },
       "bias_correction_by_condition": {
         "clear": 0.26,
         "mixed": 1.0485,
-        "precip": 1.3398
+        "precip": 1.3789
       },
-      "bias_correction_f": 0.987,
+      "bias_correction_f": 1.0773,
       "bias_n_days": 31,
-      "historical_MAE": 1.07721935483871,
+      "historical_MAE": 1.1675548387096775,
+      "mae_by_condition": {
+        "clear": 0.7898,
+        "mixed": 1.125,
+        "precip": 1.4051
+      },
       "n_days": 31
     },
     "il": {
       "bias_condition_ns": {
         "clear": 1,
         "mixed": 15,
-        "precip": 8,
-        "snow": 1
+        "precip": 9,
+        "snow": 2
       },
       "bias_correction_by_condition": {
         "mixed": 0.6775,
-        "precip": 1.031
+        "precip": 1.0763
       },
-      "bias_correction_f": 0.6347,
-      "bias_n_days": 37,
-      "historical_MAE": 0.7896783783783782,
-      "n_days": 37
+      "bias_correction_f": 0.6732,
+      "bias_n_days": 35,
+      "historical_MAE": 0.8369885714285713,
+      "mae_by_condition": {
+        "mixed": 0.8201,
+        "precip": 1.2918
+      },
+      "n_days": 35
     },
     "ny": {
       "bias_condition_ns": {
         "clear": 5,
-        "mixed": 10,
-        "precip": 2,
+        "mixed": 11,
+        "precip": 3,
         "snow": 8
       },
       "bias_correction_by_condition": {
         "clear": 0.3399,
-        "mixed": 1.3885,
+        "mixed": 1.1763,
+        "precip": -0.0085,
         "snow": 0.876
       },
-      "bias_correction_f": 0.629,
-      "bias_n_days": 39,
-      "historical_MAE": 1.0670641025641028,
-      "n_days": 39
+      "bias_correction_f": 0.6642,
+      "bias_n_days": 37,
+      "historical_MAE": 1.1235594594594596,
+      "mae_by_condition": {
+        "clear": 0.9052,
+        "mixed": 1.5339,
+        "precip": 1.3402,
+        "snow": 1.4164
+      },
+      "n_days": 37
     },
     "tx": {
       "bias_condition_ns": {
         "clear": 6,
-        "mixed": 12,
+        "mixed": 14,
         "precip": 6,
         "snow": 0
       },
       "bias_correction_by_condition": {
         "clear": 0.0361,
-        "mixed": 1.0908,
+        "mixed": 1.1191,
         "precip": 1.7949
       },
-      "bias_correction_f": 0.8073,
-      "bias_n_days": 38,
-      "historical_MAE": 1.0821947368421057,
-      "n_days": 38
+      "bias_correction_f": 0.8233,
+      "bias_n_days": 36,
+      "historical_MAE": 1.1134166666666667,
+      "mae_by_condition": {
+        "clear": 0.8173,
+        "mixed": 1.1399,
+        "precip": 1.7949
+      },
+      "n_days": 36
     }
   },
   "source": "Data/source_performance.csv (source_name=consensus, absolute_error)",
-  "updated_at": "2026-03-15T07:15:01.925327-04:00",
+  "updated_at": "2026-03-17T07:15:01.768451-04:00",
   "window_days": 30
 }

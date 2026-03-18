@@ -56,7 +56,19 @@ Updated by the nightly calibration job (`calibrate_sources.py`) once NWS CLI “
 
 ### Intraday consensus (`intraday_pulse.py`)
 
-Cron runs at :00 and :30 (hours 0–16). For each city, fetches provider forecasts; mean forecast \(\mu = \sum_i w_i x_i\) (uses `Data/weights.json` or equal weights); snapshot spread \(\sigma_{\text{snapshot}} = \text{pstdev}(\{x_i\})\). Outputs: `Data/intraday_forecasts.csv`, and with `--write-predictions`: `Data/predictions_latest.csv`, `Data/predictions_history.csv`.
+Cron runs at :00 and :30 (hours 0–16). For each city, fetches provider forecasts; mean forecast \(\mu = \sum_i w_i x_i\) (uses `Data/weights.json` or equal weights). Outputs: `Data/intraday_forecasts.csv`, and with `--write-predictions`: `Data/predictions_latest.csv`, `Data/predictions_history.csv`.
+
+#### Spread / sigma pipeline
+
+The confidence signal depends entirely on getting an accurate spread. There are three sequential steps:
+
+1. **Outlier rejection** (`--outlier-rejection-f` default 8.0°F, `--outlier-max-fraction` default 0.35): before computing spread, any source deviating more than the threshold from the weighted consensus mean is a candidate for exclusion (the mean itself is already robust via low weights — only sigma suffers). Two guards apply: (a) at least 2 sources must remain; (b) if more than `outlier-max-fraction` of sources would be rejected, the situation is treated as a genuine **bimodal split** — providers truly disagree — and no rejection occurs, leaving the high sigma intact. Example: 5 of 8 sources rejected = 62% > 35% cap → no rejection → high sigma → low confidence (correct). 1 of 8 rejected = 12% ≤ 35% → rejection applies. Rejected sources are logged to stdout and recorded in the `outliers_rejected` column of `intraday_forecasts.csv`.
+
+2. **Reliable-source spread**: among the surviving sources, further restrict to sources with historical MAE ≤ 1.5× the best source MAE, then compute `pstdev`. A small bonus (+0.10) is applied to `spread_conf` when one source is clearly dominant (best MAE < 80% of second-best).
+
+3. **Max-source-divergence widening** (`--max-source-divergence`, default 3.0°F): after rejection, if any *remaining* source still deviates more than the threshold from the consensus, sigma is widened to `max(sigma, max_dev / 2)`. This captures genuine warm/cold-front days where one provider is early on a real move — the opposite of corrupt data.
+
+The distinction: **outlier rejection** handles impossible values (weather.gov at 27°F in March when consensus is 54°F). **Divergence widening** handles plausible-but-large disagreements among still-trusted sources (one provider signalling a front that others haven't priced yet).
 
 ### Bias correction (`city_metadata.json`)
 
@@ -68,6 +80,16 @@ The consensus forecast has a systematic cold bias (~0.5–1.0°F depending on ci
 Example (TX, 30-day window): clear=+0.04°F, mixed=+1.08°F, precip=+1.79°F. The flat scalar (+0.81°F) was overcorrecting by ~0.77°F on clear days and undercorrecting by ~1.0°F on precip days.
 
 The `blend` bandit action is defined as `forecast + condition_correction`; `morning_trader.py` applies the same correction before computing bucket probabilities.
+
+### Confidence score
+
+`confidence_score` in `predictions_latest.csv` / `intraday_forecasts.csv` is the final signal used by `kalshi_trader.py` to decide whether to trade. It is built in three layers:
+
+1. **Spread confidence** (`_confidence_from_spread`): maps sigma to [0, 1] linearly — spread ≤ 1.5°F → 1.0, spread ≥ 3.0°F → 0.0, plus a small bonus when one source is clearly dominant.
+2. **Skill confidence** (`_skill_from_weights`): MAE-weighted quality of the source ensemble — downweights cities where the available providers are historically poor.
+3. **Condition-aware multiplier** (`_condition_confidence_factor`): learned from `mae_by_condition` in `city_metadata.json`. Computes `_mae_to_skill(condition_mae) / _mae_to_skill(city_avg_mae)` — so clear-sky days (lower historical MAE) get a boost and storm/snow days (higher MAE) get a penalty. `vote_entropy` (provider disagreement on what the conditions *are*) subtracts up to 10% independently. Multiplier clamped to [0.70, 1.15]; falls back to 1.0 until `mae_by_condition` has ≥ 3 samples per bucket.
+
+`conf_final = spread_conf × (0.5 + 0.5 × skill_conf) × condition_factor`. Then conviction score blends conf_final with `stability_score` (intraday prediction stability). Threshold: `effective_confidence ≥ 0.6` to trade.
 
 ### Trading sigma (`kalshi_trader.py`)
 

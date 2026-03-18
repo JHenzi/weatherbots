@@ -97,6 +97,12 @@ This document describes the purpose and schema of the key data files used and ge
 - **Schema note**: Prior to 2026-03 the file was written with an 8-column header but rows contained 11 columns. `web_dashboard_api.py` now calls `_migrate_observations_csv()` on each write cycle to atomically rewrite the file with the correct 11-column header on first detection.
 - **Key Columns**: `timestamp`, `city`, `stid`, `temp`, `observed_high_today`, `projected_high`, `trend_10m`, `trend_30m`, `trend_1h`, `acceleration`, `time_temp_will_max` (ISO time when temp will max, from solar model).
 
+### `intraday_forecasts.csv`
+- **Purpose**: Rolling intraday snapshot of each city's consensus forecast and spread, written by `intraday_pulse.py` on every cron tick. Primary input for `kalshi_trader.py`.
+- **Updated by**: `intraday_pulse.py` (append-only; auto-migrates header on schema change).
+- **Key Columns**: `timestamp`, `city`, `trade_date`, `mean_forecast`, `current_sigma`, per-source `tmax_*` columns, `sources_used`, `weights_used`, `outliers_rejected`.
+- **`outliers_rejected`**: comma-separated list of providers excluded from the spread calculation because their value deviated > `--outlier-rejection-f` (default 8°F) from the weighted consensus. Empty on normal days; populated on days with corrupt/stale data. See *Spread / sigma pipeline* in [data_flow.md](data_flow.md).
+
 ### `predictions_history.csv`
 - **Purpose**: A running log of every prediction made by the bot.
 - **Key Columns**: `date`, `city`, `tmax_predicted`, `tmax_lstm`, `tmax_forecast`, `spread_f`, `confidence_score`, `sources_used`.

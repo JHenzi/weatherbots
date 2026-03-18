@@ -350,6 +350,7 @@ def _append_intraday_row(path: str, row: dict) -> None:
         "tmax_weather_gov",
         "sources_used",
         "weights_used",
+        "outliers_rejected",
     ]
     if not write_header:
         try:
@@ -1278,6 +1279,31 @@ def _parse_args():
             "where one provider is 4°F above the others). Default 3.0°F."
         ),
     )
+    p.add_argument(
+        "--outlier-rejection-f",
+        dest="outlier_rejection_f",
+        type=float,
+        default=8.0,
+        help=(
+            "Exclude sources deviating more than this many °F from the weighted consensus "
+            "before computing spread/sigma. Prevents corrupt or stale data (e.g. a weather.gov "
+            "returning an overnight low as the day max) from artificially inflating spread and "
+            "zeroing confidence. Requires ≥2 sources to remain after rejection. Default 8.0°F."
+        ),
+    )
+    p.add_argument(
+        "--outlier-max-fraction",
+        dest="outlier_max_fraction",
+        type=float,
+        default=0.35,
+        help=(
+            "Maximum fraction of sources that may be rejected as outliers. If more sources "
+            "than this fraction would be removed, the situation is treated as a genuine bimodal "
+            "provider split (real uncertainty) and no rejection is applied. Default 0.35 "
+            "(≤35%% rejected = at most 2 out of 8 sources). Prevents single-cluster "
+            "survivorship from masking genuine disagreement."
+        ),
+    )
     return p.parse_args()
 
 
@@ -1438,23 +1464,64 @@ if __name__ == "__main__":
                 sum(weights_used[k] * available[k] for k in weights_used.keys()) if weights_used else None
             )
 
-            sources_with_mae = [s for s in available if s in mae_map]
+            # Outlier rejection: before computing spread, remove sources whose value
+            # deviates more than outlier_rejection_f from the weighted consensus mean.
+            # This prevents stale/corrupt data (e.g. weather.gov returning 27°F in March
+            # when all others say 54°F) from inflating sigma and zeroing confidence.
+            # The consensus mean is already robust to outliers via weights; only sigma suffers.
+            #
+            # Safety valve: if more than outlier_max_fraction of sources would be rejected,
+            # we treat the situation as a genuine bimodal split (providers truly disagree)
+            # and leave sigma alone rather than silently suppressing the disagreement.
+            # E.g. NY today: 5/8 sources rejected → 62% > 35% → no rejection, high sigma kept.
+            # Single-outlier case: 1/8 → 12% ≤ 35% → rejection applies.
+            # Guard: ≥2 sources must also remain after rejection.
+            outliers_rejected: list[str] = []
+            outlier_threshold = float(args.outlier_rejection_f)
+            outlier_max_fraction = float(getattr(args, "outlier_max_fraction", 0.35))
+            if mean_forecast is not None and len(available) > 2:
+                _candidate_rejected = [
+                    s for s, v in available.items()
+                    if abs(v - mean_forecast) > outlier_threshold
+                ]
+                _fraction = len(_candidate_rejected) / len(available)
+                if (
+                    _candidate_rejected
+                    and _fraction <= outlier_max_fraction
+                    and len(available) - len(_candidate_rejected) >= 2
+                ):
+                    outliers_rejected = sorted(_candidate_rejected)
+                    print(
+                        f"[outlier_rejection] {city}: excluded {outliers_rejected} "
+                        f"(>{outlier_threshold:.1f}°F from consensus {mean_forecast:.1f}°F)"
+                    )
+                elif _candidate_rejected and _fraction > outlier_max_fraction:
+                    print(
+                        f"[outlier_rejection] {city}: {len(_candidate_rejected)}/{len(available)} sources "
+                        f"would be rejected ({_fraction:.0%} > {outlier_max_fraction:.0%} cap) — "
+                        f"treating as genuine bimodal split, keeping high sigma"
+                    )
+            available_for_spread = (
+                {s: v for s, v in available.items() if s not in outliers_rejected}
+                if outliers_rejected else available
+            )
+
+            sources_with_mae = [s for s in available_for_spread if s in mae_map]
             if sources_with_mae:
                 best_mae = min(mae_map[s] for s in sources_with_mae)
                 reliable = [s for s in sources_with_mae if mae_map[s] <= 1.5 * best_mae]
-                sigma = float(statistics.pstdev([available[s] for s in reliable])) if len(reliable) >= 2 else 0.0
+                sigma = float(statistics.pstdev([available_for_spread[s] for s in reliable])) if len(reliable) >= 2 else 0.0
                 mae_sorted = sorted(mae_map[s] for s in sources_with_mae)
                 bonus = 0.1 if len(mae_sorted) >= 2 and mae_sorted[0] < 0.8 * mae_sorted[1] else 0.0
             else:
-                sigma = float(statistics.pstdev(list(available.values()))) if len(available) > 1 else (0.0 if available else None)
+                sigma = float(statistics.pstdev(list(available_for_spread.values()))) if len(available_for_spread) > 1 else (0.0 if available_for_spread else None)
                 bonus = 0.0
 
-            # Max-source-divergence guardrail: if any single source deviates more than
-            # max_source_divergence_f degrees from the weighted consensus, widen sigma to
-            # reflect the elevated uncertainty. This catches warm/cold-front days where one
-            # provider is signalling a large move that the others haven't yet captured.
-            if mean_forecast is not None and available and sigma is not None:
-                max_src_dev = max(abs(v - mean_forecast) for v in available.values())
+            # Max-source-divergence guardrail: if any source in the non-rejected set still
+            # deviates more than max_source_divergence_f, widen sigma. This catches genuine
+            # warm/cold-front days where one provider is early on a real move.
+            if mean_forecast is not None and available_for_spread and sigma is not None:
+                max_src_dev = max(abs(v - mean_forecast) for v in available_for_spread.values())
                 if max_src_dev > float(args.max_source_divergence_f):
                     sigma = max(sigma, max_src_dev / 2.0)
 
@@ -1633,6 +1700,7 @@ if __name__ == "__main__":
                 )
                 if weights_used
                 else "",
+                "outliers_rejected": ",".join(outliers_rejected),
             }
             intraday_rows.append(row)
             if not args.no_write:
