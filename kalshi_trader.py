@@ -1621,6 +1621,23 @@ if __name__ == "__main__":
         yes_ask = px.get("yes_ask")
         if yes_ask is None:
             print("SKIP: could not determine YES ask for chosen bucket")
+            if args.decisions_log:
+                _append_decision(
+                    args.decisions_log,
+                    {
+                        "run_ts": _now_iso(),
+                        "env": args.env,
+                        "trade_date": trade_dt_str,
+                        "city": city,
+                        "series_ticker": series,
+                        "event_ticker": event_ticker,
+                        "pred_tmax_f": f"{pred:.4f}",
+                        "spread_f": "" if spread_f is None else f"{spread_f:.4f}",
+                        "confidence_score": "" if confidence is None else f"{confidence:.4f}",
+                        "decision": "skip",
+                        "reason": "no_yes_ask",
+                    },
+                )
             continue
         yes_ask = int(yes_ask)
 
