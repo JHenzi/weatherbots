@@ -501,15 +501,46 @@ def place_sell_order(
     return resp.json()
 
 
+def _to_cents(v) -> int | None:
+    """Convert a Kalshi price value to integer cents.
+
+    Handles both the legacy integer-cents format (e.g. 97) and the newer
+    dollar-string format (e.g. '0.9700' or 0.97).  Heuristic: values in
+    [0, 1] are treated as dollars; values > 1 are treated as cents.
+    """
+    if v is None:
+        return None
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return None
+    if fv < 0 or fv > 100:
+        return None
+    if fv <= 1.0:
+        return int(round(fv * 100))
+    return int(round(fv))
+
+
 def _best_yes_prices_from_orderbook(orderbook_payload: dict) -> dict[str, float | int | None]:
     """
     Kalshi orderbook returns bids only. Use reciprocal relationship:
     - YES ask = 100 - best NO bid
     - YES bid = best YES bid
     """
-    ob = (orderbook_payload or {}).get("orderbook") or {}
-    yes = ob.get("yes") or []
-    no = ob.get("no") or []
+    # Support new dollar format (orderbook_fp) and legacy integer-cents format (orderbook).
+    ob_fp = (orderbook_payload or {}).get("orderbook_fp") or {}
+    if ob_fp:
+        def _fp_to_level(lvl):
+            try:
+                return [_to_cents(lvl[0]), int(float(lvl[1]))]
+            except Exception:
+                return [None, None]
+        yes = [_fp_to_level(l) for l in (ob_fp.get("yes_dollars") or []) if l]
+        no = [_fp_to_level(l) for l in (ob_fp.get("no_dollars") or []) if l]
+    else:
+        ob = (orderbook_payload or {}).get("orderbook") or {}
+        yes = ob.get("yes") or []
+        no = ob.get("no") or []
 
     def _price_qty(level) -> tuple[int | None, int | None]:
         try:
@@ -615,9 +646,16 @@ def get_yes_pricing(
         pass
 
     m = get_market(client, market_ticker)
-    yes_ask = m.get("yes_ask")
-    yes_bid = m.get("yes_bid")
-    no_bid = m.get("no_bid")
+
+    def _market_cents(int_key: str, dollar_key: str) -> int | None:
+        v = m.get(int_key)
+        if v is not None:
+            return _to_cents(v)
+        return _to_cents(m.get(dollar_key))
+
+    yes_ask = _market_cents("yes_ask", "yes_ask_dollars")
+    yes_bid = _market_cents("yes_bid", "yes_bid_dollars")
+    no_bid = _market_cents("no_bid", "no_bid_dollars")
 
     # If yes_ask missing but no_bid exists, infer ask via reciprocity.
     if yes_ask is None and no_bid is not None:
