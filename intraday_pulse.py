@@ -1513,15 +1513,25 @@ if __name__ == "__main__":
                 sigma = float(statistics.pstdev([available_for_spread[s] for s in reliable])) if len(reliable) >= 2 else 0.0
                 mae_sorted = sorted(mae_map[s] for s in sources_with_mae)
                 bonus = 0.1 if len(mae_sorted) >= 2 and mae_sorted[0] < 0.8 * mae_sorted[1] else 0.0
+                # Sources with poor trailing MAE for this city don't get a say in spread:
+                # sigma above already uses only the reliable set, and the divergence
+                # guardrail below must match, or a known-bad provider (e.g. weatherapi in
+                # NY at 6+°F MAE) re-inflates sigma despite near-zero consensus weight.
+                spread_sources = (
+                    {s: available_for_spread[s] for s in reliable}
+                    if len(reliable) >= 2
+                    else available_for_spread
+                )
             else:
                 sigma = float(statistics.pstdev(list(available_for_spread.values()))) if len(available_for_spread) > 1 else (0.0 if available_for_spread else None)
                 bonus = 0.0
+                spread_sources = available_for_spread
 
-            # Max-source-divergence guardrail: if any source in the non-rejected set still
-            # deviates more than max_source_divergence_f, widen sigma. This catches genuine
+            # Max-source-divergence guardrail: if any reliable source still deviates more
+            # than max_source_divergence_f, widen sigma. This catches genuine
             # warm/cold-front days where one provider is early on a real move.
-            if mean_forecast is not None and available_for_spread and sigma is not None:
-                max_src_dev = max(abs(v - mean_forecast) for v in available_for_spread.values())
+            if mean_forecast is not None and spread_sources and sigma is not None:
+                max_src_dev = max(abs(v - mean_forecast) for v in spread_sources.values())
                 if max_src_dev > float(args.max_source_divergence_f):
                     sigma = max(sigma, max_src_dev / 2.0)
 
@@ -1539,7 +1549,18 @@ if __name__ == "__main__":
             spread_conf_raw = _confidence_from_spread(float(sigma)) if sigma is not None else 0.0
             spread_conf = min(0.9, max(0.0, float(spread_conf_raw)) + bonus)
             skill_conf = _skill_from_weights(weights_used, mae_map=mae_map)
-            conf_final = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
+            sigma_conf = spread_conf * (0.5 + 0.5 * skill_conf) if sigma is not None else None
+            # Blend in realized accuracy: sigma_conf only measures provider agreement, so
+            # it stays flat even as the city's trailing consensus MAE improves. Anchor half
+            # of the score to actual settled-vs-predicted skill (historical_MAE from
+            # city_metadata.json) so confidence rises when we are demonstrably accurate.
+            _realized_mae = city_historical_mae.get(city)
+            if sigma_conf is None:
+                conf_final = None
+            elif _realized_mae is not None and _realized_mae > 0:
+                conf_final = 0.5 * sigma_conf + 0.5 * _mae_to_skill(_realized_mae)
+            else:
+                conf_final = sigma_conf
 
             # Apply condition-aware multiplier: learned MAE per condition bucket relative to city
             # average. Clear/sunny days get a boost; precip/storm days get a penalty.
