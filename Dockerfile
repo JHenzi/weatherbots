@@ -25,4 +25,9 @@ COPY . /app
 RUN chmod +x /app/scripts/run_trade.sh /app/scripts/run_calibrate.sh /app/scripts/run_settle.sh /app/scripts/run_intraday_pulse.sh
 RUN chmod +x /app/scripts/docker_entrypoint.sh
 
+# Surface a hung dashboard in `docker ps` (unhealthy) instead of a silent 000.
+# The in-container supervisor still self-heals; this is for visibility/alerting.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8080/', timeout=8)" || exit 1
+
 ENTRYPOINT ["/app/scripts/docker_entrypoint.sh"]

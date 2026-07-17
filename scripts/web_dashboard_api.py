@@ -1244,10 +1244,12 @@ async def place_order(
 
 if __name__ == "__main__":
     import uvicorn
-    # Reload requires app as import string. Run from project root so "scripts.web_dashboard_api" resolves.
+    # Run the app object directly, single-process. Do NOT enable reload in the
+    # container: reload spawns a child server under a file-watcher parent, and a
+    # hung/dead child leaves an unreaped zombie with the port unresponsive
+    # (the failure that took the dashboard down on 2026-07-11).
     uvicorn.run(
-        "scripts.web_dashboard_api:app",
+        app,
         host="0.0.0.0",
         port=8080,
-        reload=True,
     )
