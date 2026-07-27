@@ -463,6 +463,52 @@ def cancel_order(client: KalshiHttpClient, order_id: str) -> bool:
     raise RuntimeError(f"Failed to cancel order {order_id}: {resp.status_code} {resp.text}")
 
 
+def build_order_v2(
+    *,
+    ticker: str,
+    side: str,
+    action: str,
+    count: int,
+    price_cents: int,
+    client_order_id: str | None = None,
+    time_in_force: str = "good_till_canceled",
+) -> dict:
+    """
+    Build a Kalshi /trade-api/v2/portfolio/orders request body.
+
+    Kalshi's v2 order endpoint dropped the old v1-style fields (action,
+    type, yes_price/no_price as integer cents) in favor of an order
+    expressed purely on the YES leg: side="bid" (buy YES) or side="ask"
+    (sell YES), with count/price as fixed-point decimal strings.
+    A NO order has no direct v2 representation — it's expressed as the
+    mirror trade on YES at the complementary price (buying NO at X cents
+    == selling YES at (100-X) cents, and vice versa).
+    """
+    side = (side or "").strip().lower()
+    action = (action or "").strip().lower()
+    if side not in ("yes", "no"):
+        raise ValueError(f"Unknown order side: {side!r}")
+    if action not in ("buy", "sell"):
+        raise ValueError(f"Unknown order action: {action!r}")
+
+    if side == "yes":
+        v2_side = "bid" if action == "buy" else "ask"
+        cents = price_cents
+    else:
+        v2_side = "ask" if action == "buy" else "bid"
+        cents = 100 - price_cents
+
+    return {
+        "ticker": ticker,
+        "side": v2_side,
+        "count": f"{int(count):.2f}",
+        "price": f"{cents / 100:.2f}",
+        "time_in_force": time_in_force,
+        "self_trade_prevention_type": "taker_at_cross",
+        "client_order_id": client_order_id or str(uuid.uuid4()),
+    }
+
+
 def place_sell_order(
     client: KalshiHttpClient,
     *,
@@ -486,15 +532,14 @@ def place_sell_order(
             "count": count,
             "yes_price": yes_price,
         }
-    order = {
-        "ticker": ticker,
-        "side": "yes",
-        "action": "sell",
-        "count": int(count),
-        "type": "limit",
-        "yes_price": int(yes_price),
-        "client_order_id": client_order_id or str(uuid.uuid4()),
-    }
+    order = build_order_v2(
+        ticker=ticker,
+        side="yes",
+        action="sell",
+        count=count,
+        price_cents=yes_price,
+        client_order_id=client_order_id,
+    )
     resp = client.post("/trade-api/v2/portfolio/orders", order)
     if resp.status_code != 201:
         raise RuntimeError(f"Sell order failed for {ticker}: {resp.status_code} {resp.text}")
@@ -1036,18 +1081,14 @@ def make_trade(
         print("Exchange trading is not active; refusing to send order.")
         return
 
-    order = {
-        "ticker": ticker,
-        "side": side,
-        "action": "buy",
-        "count": int(count),
-        "type": "limit",
-        "client_order_id": str(uuid.uuid4()),
-    }
-    if side == "yes":
-        order["yes_price"] = int(yes_price)
-    else:
-        order["no_price"] = int(no_price)
+    price_cents = int(yes_price) if side == "yes" else int(no_price)
+    order = build_order_v2(
+        ticker=ticker,
+        side=side,
+        action="buy",
+        count=count,
+        price_cents=price_cents,
+    )
 
     resp = client.post("/trade-api/v2/portfolio/orders", order)
     if resp.status_code != 201:

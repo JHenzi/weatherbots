@@ -1217,18 +1217,13 @@ async def place_order(
     env: str = Body("prod"),
 ):
     client = _kalshi_client(env)
-    order = {
-        "ticker": ticker,
-        "side": side,
-        "action": action,
-        "count": int(count),
-        "type": "limit",
-        "client_order_id": str(_kalshi().uuid.uuid4()),
-    }
-    if side == "yes":
-        order["yes_price"] = int(price)
-    else:
-        order["no_price"] = int(price)
+    order = _kalshi().build_order_v2(
+        ticker=ticker,
+        side=side,
+        action=action,
+        count=count,
+        price_cents=price,
+    )
     try:
         status_resp = client.get("/trade-api/v2/exchange/status")
         if status_resp.status_code == 200 and not status_resp.json().get("trading_active", False):
