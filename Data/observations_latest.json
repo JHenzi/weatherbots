@@ -1,5 +1,5 @@
 {
-  "last_update": "2026-07-28T14:30:30.338004+00:00",
+  "last_update": "2026-07-28T14:55:34.660868+00:00",
   "stations": {
     "ny": {
       "city": "ny",
@@ -7,7 +7,7 @@
       "timestamp": "2026-07-28T13:51:00+00:00",
       "temp": 75.02,
       "observed_high_today": 75.02,
-      "projected_high": 78.37,
+      "projected_high": 78.06,
       "trend_10m": 0.0,
       "trend_30m": 1.0145,
       "trend_1h": 0.739,
@@ -17,40 +17,40 @@
     "il": {
       "city": "il",
       "stid": "KMDW",
-      "timestamp": "2026-07-28T14:10:00+00:00",
+      "timestamp": "2026-07-28T14:30:00+00:00",
       "temp": 69.8,
       "observed_high_today": 75.2,
       "projected_high": 75.2,
-      "trend_10m": 2.29,
-      "trend_30m": 2.0313,
-      "trend_1h": 0.6856,
-      "acceleration": 0.2587,
+      "trend_10m": 2.16,
+      "trend_30m": 1.8707,
+      "trend_1h": 0.9664,
+      "acceleration": 0.2893,
       "time_temp_will_max": "2026-07-28T14:57:38-05:00"
     },
     "tx": {
       "city": "tx",
       "stid": "KAUS",
-      "timestamp": "2026-07-28T14:10:00+00:00",
+      "timestamp": "2026-07-28T14:30:00+00:00",
       "temp": 82.4,
       "observed_high_today": 82.4,
-      "projected_high": 95.87,
-      "trend_10m": 6.4367,
-      "trend_30m": 2.422,
-      "trend_1h": 2.2033,
-      "acceleration": 4.0147,
+      "projected_high": 95.12,
+      "trend_10m": -0.0,
+      "trend_30m": 2.5193,
+      "trend_1h": 2.2344,
+      "acceleration": -2.5193,
       "time_temp_will_max": "2026-07-28T15:37:13-05:00"
     },
     "fl": {
       "city": "fl",
       "stid": "KMIA",
-      "timestamp": "2026-07-28T14:10:00+00:00",
+      "timestamp": "2026-07-28T14:35:00+00:00",
       "temp": 87.8,
       "observed_high_today": 87.8,
-      "projected_high": 112.81,
-      "trend_10m": 6.8699,
-      "trend_30m": 4.194,
-      "trend_1h": 5.0554,
-      "acceleration": 2.6759,
+      "projected_high": 107.47,
+      "trend_10m": -0.0,
+      "trend_30m": 3.136,
+      "trend_1h": 4.3433,
+      "acceleration": -3.136,
       "time_temp_will_max": "2026-07-28T15:27:19-04:00"
     }
   }
