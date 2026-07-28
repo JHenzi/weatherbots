@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#07090D; }
+  body { font-family:'Space Grotesk', system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:#58A6FF; text-decoration:none; }
+  a:hover { color:#8CC2FF; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#1E2531; border-radius:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  @keyframes wtPulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.82); } }
+  @keyframes wtBreathe { 0%,100% { box-shadow:0 0 0 0 rgba(255,84,112,.28); } 50% { box-shadow:0 0 0 7px rgba(255,84,112,0); } }
+  @keyframes wtSweep { 0% { transform:translateX(-100%); } 100% { transform:translateX(320%); } }
+  @keyframes wtDash { to { stroke-dashoffset:-24; } }
+  @keyframes wtRise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</helmet>
+
+<div style="min-width:1360px; height:100vh; min-height:840px; display:flex; flex-direction:column; background:#07090D; color:#E6EAF2; font-family:'Space Grotesk',sans-serif; overflow:hidden;">
+
+  <header style="height:54px; flex:none; display:flex; align-items:center; gap:24px; padding:0 18px; border-bottom:1px solid #171D28; background:linear-gradient(180deg,#0D1119,#0A0E14);">
+    <div style="display:flex; align-items:center; gap:9px;">
+      <div style="width:8px; height:8px; border-radius:50%; background:#2BD98A; animation:wtPulse 2.4s ease-in-out infinite;"></div>
+      <div style="font-size:15px; font-weight:700; letter-spacing:-0.01em;">Weather Trader</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:500; letter-spacing:.14em; color:#2BD98A; border:1px solid rgba(43,217,138,.3); background:rgba(43,217,138,.07); padding:3px 6px; border-radius:3px;">LIVE</div>
+    </div>
+    <nav style="display:flex; gap:2px;">
+      <div style="font-size:12px; font-weight:600; padding:6px 11px; border-radius:5px; background:#171D28; color:#E6EAF2;">Terminal</div>
+      <div style="font-size:12px; font-weight:500; padding:6px 11px; border-radius:5px; color:#9AA5B5;" style-hover="color:#E6EAF2; background:#12171F; cursor:pointer;">New Markets</div>
+      <div style="font-size:12px; font-weight:500; padding:6px 11px; border-radius:5px; color:#9AA5B5;" style-hover="color:#E6EAF2; background:#12171F; cursor:pointer;">Analytics</div>
+    </nav>
+    <div style="flex:1;"></div>
+    <div style="display:flex; align-items:stretch; gap:0; font-family:'JetBrains Mono',monospace;">
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">EQUITY</div>
+        <div style="font-size:14px; font-weight:500; margin-top:2px;">$4,281.20</div>
+      </div>
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">TODAY</div>
+        <div style="font-size:14px; font-weight:500; margin-top:2px; color:#2BD98A;">+$213.40</div>
+      </div>
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">WIN RATE</div>
+        <div style="font-size:14px; font-weight:500; margin-top:2px;">68.4<span style="color:#939EAF;">%</span></div>
+      </div>
+      <div style="padding:0 4px 0 16px; border-left:1px solid #171D28; text-align:right;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">OBS 2m AGO</div>
+        <div style="font-size:14px; font-weight:500; margin-top:2px; color:#58A6FF;">{{ clock }}</div>
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1; min-height:0; display:grid; grid-template-columns:296px minmax(0,1fr) 400px; gap:10px; padding:10px;">
+
+    <!-- ══ COLUMN A ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">MARKETS · BRACKET RACE</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">4 CITIES</div>
+        </div>
+
+        <div style="padding:10px 12px; border-bottom:1px solid #12171F; border-left:2px solid #1E2531; display:flex; flex-direction:column; gap:6px;" style-hover="background:#10151D; cursor:pointer;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <div style="display:flex; align-items:baseline; gap:7px;">
+              <div style="font-size:13px; font-weight:600;">New York</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">KNYC</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#2BD98A; background:rgba(43,217,138,.09); border:1px solid rgba(43,217,138,.22); padding:2px 5px; border-radius:3px;">+$65.60</div>
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:baseline; gap:6px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:500; letter-spacing:-0.02em;">82.4°</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#9AA5B5;">→ 82.9</div>
+            </div>
+            <svg width="72" height="24" viewBox="0 0 72 24" fill="none" style="overflow:visible;">
+              <polyline points="0,20 8,19 16,16 24,12 32,8 40,5 48,4 56,6 64,10 72,14" stroke="#2BD98A" stroke-width="1.4" fill="none" stroke-linejoin="round"/>
+              <circle cx="44" cy="4" r="2.4" fill="#2BD98A"/>
+            </svg>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:9.5px;">
+            <div style="color:#2BD98A;">↑0.31°/hr</div>
+            <div style="flex:1; height:3px; border-radius:2px; background:#171D28; overflow:hidden;"><div style="width:74%; height:100%; background:#2BD98A;"></div></div>
+            <div style="color:#9AA5B5;">82–83.9</div>
+          </div>
+        </div>
+
+        <div style="padding:10px 12px; border-bottom:1px solid #12171F; border-left:2px solid #FF5470; background:linear-gradient(90deg,rgba(255,84,112,.08),rgba(255,84,112,0) 60%);">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px;">
+            <div style="display:flex; align-items:baseline; gap:7px;">
+              <div style="font-size:13px; font-weight:600;">Chicago</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">KMDW</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:8px; letter-spacing:.1em; color:#FF5470; border:1px solid rgba(255,84,112,.35); padding:1.5px 4px; border-radius:3px;">AT RISK</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#FF5470; background:rgba(255,84,112,.1); border:1px solid rgba(255,84,112,.28); padding:2px 5px; border-radius:3px;">−$144.00</div>
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:baseline; gap:6px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:500; letter-spacing:-0.02em; color:#FFD5DD;">87.2°</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#FF5470;">→ 88.0</div>
+            </div>
+            <svg width="72" height="24" viewBox="0 0 72 24" fill="none" style="overflow:visible;">
+              <line x1="0" y1="6" x2="72" y2="6" stroke="#FF5470" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>
+              <polyline points="0,21 8,20 16,17 24,13 32,9 40,6 48,3 56,2 64,5 72,9" stroke="#FF5470" stroke-width="1.4" fill="none" stroke-linejoin="round"/>
+              <circle cx="40" cy="6" r="2.4" fill="#FF5470"/>
+            </svg>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:9.5px; margin-top:6px;">
+            <div style="color:#FF5470;">↑0.92°/hr</div>
+            <div style="flex:1; height:3px; border-radius:2px; background:#171D28; overflow:hidden;"><div style="width:100%; height:100%; background:linear-gradient(90deg,#FFB84D,#FF5470);"></div></div>
+            <div style="color:#FF8FA3;">86–87.9</div>
+          </div>
+        </div>
+
+        <div style="padding:10px 12px; border-bottom:1px solid #12171F; border-left:2px solid #1E2531; display:flex; flex-direction:column; gap:6px;" style-hover="background:#10151D; cursor:pointer;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <div style="display:flex; align-items:baseline; gap:7px;">
+              <div style="font-size:13px; font-weight:600;">Austin</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">KAUS</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#58A6FF;">EDGE 11.4¢</div>
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:baseline; gap:6px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:500; letter-spacing:-0.02em;">96.1°</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#9AA5B5;">→ 98.6</div>
+            </div>
+            <svg width="72" height="24" viewBox="0 0 72 24" fill="none" style="overflow:visible;">
+              <polyline points="0,21 8,20 16,18 24,14 32,10 40,7 48,4 56,3 64,5 72,9" stroke="#58A6FF" stroke-width="1.4" fill="none" stroke-linejoin="round"/>
+              <circle cx="36" cy="8.5" r="2.4" fill="#58A6FF"/>
+            </svg>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:9.5px;">
+            <div style="color:#58A6FF;">↑1.04°/hr</div>
+            <div style="flex:1; height:3px; border-radius:2px; background:#171D28; overflow:hidden;"><div style="width:52%; height:100%; background:#58A6FF;"></div></div>
+            <div style="color:#9AA5B5;">98–99.9</div>
+          </div>
+        </div>
+
+        <div style="padding:10px 12px; border-left:2px solid #1E2531; display:flex; flex-direction:column; gap:6px;" style-hover="background:#10151D; cursor:pointer;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <div style="display:flex; align-items:baseline; gap:7px;">
+              <div style="font-size:13px; font-weight:600;">Miami</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">KMIA</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">NO EDGE</div>
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:baseline; gap:6px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:500; letter-spacing:-0.02em; color:#9AA5B5;">90.2°</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#9AA5B5;">→ 91.4</div>
+            </div>
+            <svg width="72" height="24" viewBox="0 0 72 24" fill="none" style="overflow:visible;">
+              <polyline points="0,20 8,19 16,17 24,13 32,10 40,7 48,6 56,7 64,10 72,14" stroke="#4A5464" stroke-width="1.4" fill="none" stroke-linejoin="round"/>
+              <circle cx="40" cy="7" r="2.4" fill="#7C8798"/>
+            </svg>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:9.5px;">
+            <div style="color:#9AA5B5;">↑0.44°/hr</div>
+            <div style="flex:1; height:3px; border-radius:2px; background:#171D28; overflow:hidden;"><div style="width:63%; height:100%; background:#3A4454;"></div></div>
+            <div style="color:#9AA5B5;">90–91.9</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden;">
+        <div style="display:flex; align-items:baseline; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">SOURCE ACCURACY · 7d MAE</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">947,312 SCORED</div>
+        </div>
+        <div style="padding:10px 12px; display:flex; flex-direction:column; gap:6px; font-family:'JetBrains Mono',monospace; font-size:10px;">
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px; padding-bottom:6px; border-bottom:1px dashed #1A2029;">
+            <div style="color:#A78BFA; font-weight:700;">ENSEMBLE</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:35%; height:100%; background:#A78BFA;"></div></div>
+            <div style="text-align:right; color:#A78BFA; font-weight:700;">0.71</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#B4BECC;">Open-Meteo</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:46%; height:100%; background:#2BD98A;"></div></div>
+            <div style="text-align:right; color:#2BD98A;">0.94</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#B4BECC;">Tomorrow</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:53%; height:100%; background:#2BD98A;"></div></div>
+            <div style="text-align:right; color:#2BD98A;">1.07</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#B4BECC;">Visual Cross</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:55%; height:100%; background:#69D9A0;"></div></div>
+            <div style="text-align:right; color:#69D9A0;">1.12</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#B4BECC;">NWS</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:66%; height:100%; background:#FFB84D;"></div></div>
+            <div style="text-align:right; color:#FFB84D;">1.34</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#B4BECC;">WeatherAPI</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:74%; height:100%; background:#FFB84D;"></div></div>
+            <div style="text-align:right; color:#FFB84D;">1.51</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#9AA5B5;">OpenWeather</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:92%; height:100%; background:#FF5470;"></div></div>
+            <div style="text-align:right; color:#FF5470;">1.88</div>
+          </div>
+          <div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px;">
+            <div style="color:#9AA5B5;">Pirate</div>
+            <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:100%; height:100%; background:#FF5470;"></div></div>
+            <div style="text-align:right; color:#FF5470;">2.03</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden; flex:1; min-height:132px; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:baseline; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">BEST HOUR TO ENTER</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#2BD98A;">16:00 · MAE 0.98</div>
+        </div>
+        <div style="flex:1; display:flex; align-items:flex-end; gap:6px; padding:12px;">
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:52px; background:#232B38; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">08</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:42px; background:#2A3444; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">10</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:33px; background:#33405A; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">12</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:24px; background:#2F6B54; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">14</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:19px; background:#2BD98A; border-radius:2px 2px 0 0; box-shadow:0 0 12px rgba(43,217,138,.35);"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#2BD98A;">16</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:29px; background:#2F6B54; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">18</div></div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;"><div style="width:100%; height:38px; background:#2A3444; border-radius:2px 2px 0 0;"></div><div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#939EAF;">20</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ COLUMN B ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div style="border:1px solid #1E2531; border-radius:8px; background:linear-gradient(180deg,#0F131B,#0B0F15); flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #171D28;">
+          <div style="display:flex; align-items:baseline; gap:12px;">
+            <div style="font-size:16px; font-weight:700; letter-spacing:-0.01em;">Chicago</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#939EAF; white-space:nowrap;">KMDW · 2026-07-27</div>
+          </div>
+          <div style="display:flex; gap:20px; font-family:'JetBrains Mono',monospace;">
+            <div style="text-align:right;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">NOW</div>
+              <div style="font-size:19px; font-weight:500; margin-top:1px;">87.2°</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">PROJ HIGH</div>
+              <div style="font-size:19px; font-weight:500; margin-top:1px; color:#FF5470;">88.0°</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">BRACKET CAP</div>
+              <div style="font-size:19px; font-weight:500; margin-top:1px; color:#9AA5B5;">87.9°</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">CONF</div>
+              <div style="font-size:19px; font-weight:500; margin-top:1px;">0.88</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:1; min-height:0; position:relative; padding:14px 16px 6px 42px;">
+          <svg viewBox="0 0 900 300" preserveAspectRatio="none" style="width:100%; height:100%; display:block; overflow:visible;">
+            <rect x="0" y="0" width="900" height="51.25" fill="rgba(255,84,112,.07)"/>
+            <rect x="0" y="51.25" width="900" height="23.75" fill="rgba(88,166,255,.09)"/>
+            <line x1="0" y1="51.25" x2="900" y2="51.25" stroke="#FF5470" stroke-width="1" stroke-dasharray="5 4" opacity=".7"/>
+            <line x1="0" y1="75" x2="900" y2="75" stroke="#58A6FF" stroke-width="1" stroke-dasharray="5 4" opacity=".45"/>
+            <line x1="0" y1="150" x2="900" y2="150" stroke="#151B24" stroke-width="1"/>
+            <line x1="0" y1="225" x2="900" y2="225" stroke="#151B24" stroke-width="1"/>
+            <line x1="0" y1="299" x2="900" y2="299" stroke="#1E2531" stroke-width="1"/>
+            <polygon points="0,225 37.5,236.3 75,245 112.5,252.5 150,260 187.5,263.8 225,255 262.5,227.5 300,188.8 337.5,152.5 375,123.8 412.5,101.3 450,85 487.5,71.3 525,62.5 553,60 553,300 0,300" fill="rgba(255,84,112,.10)"/>
+            <polyline points="0,225 37.5,236.3 75,245 112.5,252.5 150,260 187.5,263.8 225,255 262.5,227.5 300,188.8 337.5,152.5 375,123.8 412.5,101.3 450,85 487.5,71.3 525,62.5 553,60" fill="none" stroke="#FF5470" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+            <polyline points="553,60 562.5,57.5 600,51.3 637.5,50 675,57.5 712.5,73.8 750,97.5 787.5,125 825,148.8 862.5,170" fill="none" stroke="#FF8FA3" stroke-width="2" stroke-dasharray="6 5" stroke-linejoin="round" vector-effect="non-scaling-stroke" style="animation:wtDash 1.6s linear infinite;"/>
+            <line x1="553" y1="0" x2="553" y2="300" stroke="#E6EAF2" stroke-width="1" opacity=".35" vector-effect="non-scaling-stroke"/>
+            <circle cx="553" cy="60" r="4.5" fill="#FF5470" vector-effect="non-scaling-stroke"/>
+            <circle cx="637.5" cy="50" r="3.5" fill="none" stroke="#FF8FA3" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+          </svg>
+
+          <div style="position:absolute; left:6px; top:14px; bottom:6px; width:34px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#939EAF; text-align:right; pointer-events:none;">
+            <div style="position:absolute; right:0; top:0%; transform:translateY(-50%);">92°</div>
+            <div style="position:absolute; right:0; top:17.08%; transform:translateY(-50%); color:#FF5470;">87.9</div>
+            <div style="position:absolute; right:0; top:25%; transform:translateY(-50%); color:#58A6FF;">86°</div>
+            <div style="position:absolute; right:0; top:50%; transform:translateY(-50%);">80°</div>
+            <div style="position:absolute; right:0; top:75%; transform:translateY(-50%);">74°</div>
+            <div style="position:absolute; right:0; top:100%; transform:translateY(-50%);">68°</div>
+          </div>
+          <div style="position:absolute; right:18px; top:20px; display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.1em; color:#FF5470; background:rgba(255,84,112,.12); border:1px solid rgba(255,84,112,.32); padding:4px 8px; border-radius:3px; white-space:nowrap; animation:wtBreathe 2.6s ease-in-out infinite;"><div style="width:5px; height:5px; border-radius:50%; background:#FF5470;"></div>BREACH ZONE · PROJECTED 16:54</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; padding:0 16px 8px 42px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">
+          <div>00</div><div>03</div><div>06</div><div>09</div><div>12</div><div style="color:#E6EAF2;">NOW 14:47</div><div>18</div><div>21</div><div>23</div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 320px; gap:10px; flex:none;">
+        <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5; white-space:nowrap;">SOURCE SPREAD</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#9AA5B5; white-space:nowrap;">σ 2.76 · 74.6–83.4</div>
+          </div>
+          <div style="padding:20px 16px 12px;">
+            <div style="position:relative; height:44px;">
+              <div style="position:absolute; left:0; right:0; top:26px; height:2px; background:#171D28;"></div>
+              <div style="position:absolute; left:24%; width:22%; top:6px; bottom:8px; background:rgba(88,166,255,.1); border-left:1px dashed rgba(88,166,255,.4); border-right:1px dashed rgba(88,166,255,.4);"></div>
+              <div style="position:absolute; left:8%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(43,217,138,.16); border:1.5px solid #2BD98A;"></div>
+              <div style="position:absolute; left:31%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(43,217,138,.16); border:1.5px solid #2BD98A;"></div>
+              <div style="position:absolute; left:26%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(43,217,138,.16); border:1.5px solid #69D9A0;"></div>
+              <div style="position:absolute; left:57%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(255,184,77,.16); border:1.5px solid #FFB84D;"></div>
+              <div style="position:absolute; left:38%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(255,84,112,.14); border:1.5px solid #FF5470;"></div>
+              <div style="position:absolute; left:81%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(255,84,112,.14); border:1.5px solid #FF5470;"></div>
+              <div style="position:absolute; left:31.5%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(255,84,112,.14); border:1.5px solid #FF8FA3;"></div>
+              <div style="position:absolute; left:44%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:rgba(255,184,77,.16); border:1.5px solid #FFB84D;"></div>
+              <div style="position:absolute; left:36.5%; top:2px; bottom:2px; width:2px; background:#A78BFA; box-shadow:0 0 10px rgba(167,139,250,.7);"></div>
+              <div style="position:absolute; left:36.5%; top:-16px; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:9px; color:#A78BFA; white-space:nowrap;">ENSEMBLE 78.0</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2; margin-top:2px;">
+              <div>74°</div><div>77°</div><div>80°</div><div>83°</div><div>86°</div>
+            </div>
+            <div style="display:flex; gap:12px; margin-top:10px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#939EAF;">
+              <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px; height:7px; border-radius:50%; border:1.5px solid #2BD98A;"></div>low MAE</div>
+              <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px; height:7px; border-radius:50%; border:1.5px solid #FFB84D;"></div>mid</div>
+              <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px; height:7px; border-radius:50%; border:1.5px solid #FF5470;"></div>high MAE</div>
+              <div style="display:flex; align-items:center; gap:5px;"><div style="width:10px; height:8px; background:rgba(88,166,255,.18); border-left:1px dashed #58A6FF; border-right:1px dashed #58A6FF;"></div>bracket</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">CONFIDENCE · 14d</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#A78BFA;">0.88 ↑</div>
+          </div>
+          <div style="padding:12px 12px 10px;">
+            <svg viewBox="0 0 280 72" preserveAspectRatio="none" style="width:100%; height:72px; display:block;">
+              <line x1="0" y1="24" x2="280" y2="24" stroke="#151B24" stroke-width="1"/>
+              <line x1="0" y1="48" x2="280" y2="48" stroke="#151B24" stroke-width="1"/>
+              <polygon points="0,44 21.5,50 43,38 64.5,42 86,33 107.5,36 129,28 150.5,34 172,22 193.5,26 215,18 236.5,24 258,14 280,11 280,72 0,72" fill="rgba(167,139,250,.12)"/>
+              <polyline points="0,44 21.5,50 43,38 64.5,42 86,33 107.5,36 129,28 150.5,34 172,22 193.5,26 215,18 236.5,24 258,14 280,11" fill="none" stroke="#A78BFA" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+              <circle cx="278" cy="11" r="3" fill="#A78BFA"/>
+            </svg>
+            <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2; margin-top:4px;">
+              <div>Jul 13</div><div>Jul 20</div><div>Jul 27</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; flex:none; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+          <div style="display:flex; align-items:baseline; gap:10px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">NEXT TRADE MATRIX</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#E6EAF2;">2026-07-28</div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">CELLS TINTED BY SOURCE MAE · LAST RUN 21:00</div>
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:11px;">
+          <thead>
+            <tr style="color:#939EAF; font-size:9px; letter-spacing:.08em;">
+              <th style="text-align:left; padding:7px 12px; font-weight:500;">CITY</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">PRED</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">CONF</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">σ</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500; border-left:1px solid #171D28;">O-METEO</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">TMRW</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">VC</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">NWS</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">WAPI</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">GOOG</th>
+              <th style="text-align:right; padding:7px 8px; font-weight:500;">OWM</th>
+              <th style="text-align:right; padding:7px 12px; font-weight:500;">PIRATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-top:1px solid #12171F;">
+              <td style="padding:7px 12px; font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;">New York</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D; font-weight:700;">79.6°</td>
+              <td style="text-align:right; padding:7px 8px; color:#B4BECC;">0.78</td>
+              <td style="text-align:right; padding:7px 8px; color:#9AA5B5;">2.01</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; border-left:1px solid #171D28; background:rgba(43,217,138,.05);">82.4</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; background:rgba(43,217,138,.05);">82.3</td>
+              <td style="text-align:right; padding:7px 8px; color:#69D9A0;">78.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">79.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">75.1</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470;">76.6</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470; background:rgba(255,84,112,.05);">74.2</td>
+              <td style="text-align:right; padding:7px 12px; color:#FF5470; background:rgba(255,84,112,.05);">78.2</td>
+            </tr>
+            <tr style="border-top:1px solid #12171F; background:rgba(255,84,112,.035);">
+              <td style="padding:7px 12px; font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;">Chicago</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D; font-weight:700;">78.0°</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A;">0.88</td>
+              <td style="text-align:right; padding:7px 8px; color:#9AA5B5;">0.85</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; border-left:1px solid #171D28; background:rgba(43,217,138,.05);">74.6</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; background:rgba(43,217,138,.05);">77.4</td>
+              <td style="text-align:right; padding:7px 8px; color:#69D9A0;">79.1</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">80.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">81.8</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470;">79.2</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470; background:rgba(255,84,112,.05);">83.4</td>
+              <td style="text-align:right; padding:7px 12px; color:#FF5470; background:rgba(255,84,112,.05);">79.1</td>
+            </tr>
+            <tr style="border-top:1px solid #12171F;">
+              <td style="padding:7px 12px; font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;">Austin</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470; font-weight:700;">98.2°</td>
+              <td style="text-align:right; padding:7px 8px; color:#B4BECC;">0.85</td>
+              <td style="text-align:right; padding:7px 8px; color:#9AA5B5;">0.66</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; border-left:1px solid #171D28; background:rgba(43,217,138,.05);">97.2</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; background:rgba(43,217,138,.05);">96.5</td>
+              <td style="text-align:right; padding:7px 8px; color:#69D9A0;">99.1</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">98.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">102.5</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470;">97.7</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470; background:rgba(255,84,112,.05);">99.7</td>
+              <td style="text-align:right; padding:7px 12px; color:#FF5470; background:rgba(255,84,112,.05);">97.8</td>
+            </tr>
+            <tr style="border-top:1px solid #12171F;">
+              <td style="padding:7px 12px; font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;">Miami</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D; font-weight:700;">89.1°</td>
+              <td style="text-align:right; padding:7px 8px; color:#B4BECC;">0.77</td>
+              <td style="text-align:right; padding:7px 8px; color:#9AA5B5;">1.53</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; border-left:1px solid #171D28; background:rgba(43,217,138,.05);">90.8</td>
+              <td style="text-align:right; padding:7px 8px; color:#2BD98A; background:rgba(43,217,138,.05);">90.8</td>
+              <td style="text-align:right; padding:7px 8px; color:#69D9A0;">88.1</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">89.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FFB84D;">92.2</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470;">88.0</td>
+              <td style="text-align:right; padding:7px 8px; color:#FF5470; background:rgba(255,84,112,.05);">88.8</td>
+              <td style="text-align:right; padding:7px 12px; color:#FF5470; background:rgba(255,84,112,.05);">87.2</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ COLUMN C ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div style="border:1px solid rgba(255,84,112,.35); border-radius:8px; background:linear-gradient(180deg,rgba(255,84,112,.10),#0D1119 70%); overflow:hidden; position:relative; flex:none;">
+        <div style="position:absolute; inset:0 auto 0 0; width:22%; background:linear-gradient(90deg,transparent,rgba(255,84,112,.07),transparent); animation:wtSweep 4.5s ease-in-out infinite; pointer-events:none;"></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,84,112,.2);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:7px; height:7px; border-radius:50%; background:#FF5470; animation:wtPulse 1.4s ease-in-out infinite;"></div>
+            <div style="font-size:13px; font-weight:700; color:#FF8FA3;">Sell signal — Chicago</div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#FF8FA3;">2m ago</div>
+        </div>
+        <div style="padding:12px 14px; position:relative;">
+          <div style="font-size:12.5px; line-height:1.5; color:#C6CEDA; text-wrap:pretty;">Temp still climbing <strong style="color:#FF8FA3; font-weight:600;">0.92°/hr</strong> with 2.1h to peak. Ensemble now projects <strong style="color:#FF8FA3; font-weight:600;">88.0°</strong> — above the <strong style="color:#E6EAF2; font-weight:600;">86–87.9</strong> cap. Model win probability dropped 0.61 → 0.24 since 12:00.</div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; font-family:'JetBrains Mono',monospace;">
+            <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">EXIT NOW</div>
+              <div style="font-size:14px; margin-top:2px;">31¢</div>
+            </div>
+            <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">SAVES</div>
+              <div style="font-size:14px; margin-top:2px; color:#2BD98A;">$186</div>
+            </div>
+            <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;">
+              <div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">HEDGE NO</div>
+              <div style="font-size:14px; margin-top:2px; color:#58A6FF;">68¢</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <div style="flex:1; text-align:center; font-size:12px; font-weight:600; padding:8px; border-radius:5px; background:#58A6FF; color:#04101F;" style-hover="background:#7FBBFF; cursor:pointer;">Sell 60 YES @ 31¢</div>
+            <div style="flex:none; text-align:center; font-size:12px; font-weight:500; padding:8px 14px; border-radius:5px; border:1px solid #2A3444; color:#B4BECC;" style-hover="border-color:#3A4454; color:#E6EAF2; cursor:pointer;">Hold</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden; flex:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">OPEN POSITIONS</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#FF5470;">NET −$78.40</div>
+        </div>
+
+        <div style="padding:11px 12px; border-bottom:1px solid #12171F;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <div style="display:flex; align-items:baseline; gap:8px;">
+              <div style="font-size:13px; font-weight:600;">New York</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#2BD98A; border:1px solid rgba(43,217,138,.28); padding:1.5px 5px; border-radius:3px;">YES 82–83.9</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:15px; color:#2BD98A;">+$65.60</div>
+          </div>
+          <div style="display:flex; gap:14px; margin-top:7px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#9AA5B5;">
+            <div>41 @ <span style="color:#B4BECC;">62¢</span></div>
+            <div>now <span style="color:#B4BECC;">78¢</span></div>
+            <div>conf <span style="color:#B4BECC;">0.88</span></div>
+            <div>win <span style="color:#2BD98A;">0.81</span></div>
+          </div>
+          <div style="position:relative; height:5px; border-radius:3px; background:#12171F; margin-top:9px; overflow:hidden;">
+            <div style="position:absolute; left:0; top:0; bottom:0; width:74%; background:linear-gradient(90deg,#1E7A52,#2BD98A);"></div>
+            <div style="position:absolute; left:74%; top:-3px; bottom:-3px; width:2px; background:#E6EAF2;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2; margin-top:4px;">
+            <div>82.0</div><div style="color:#2BD98A;">82.4 now → 82.9 proj</div><div>83.9</div>
+          </div>
+        </div>
+
+        <div style="padding:11px 12px; background:rgba(255,84,112,.04);">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <div style="display:flex; align-items:baseline; gap:8px;">
+              <div style="font-size:13px; font-weight:600;">Chicago</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#FF5470; border:1px solid rgba(255,84,112,.3); padding:1.5px 5px; border-radius:3px;">YES 86–87.9</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:15px; color:#FF5470;">−$144.00</div>
+          </div>
+          <div style="display:flex; gap:14px; margin-top:7px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#9AA5B5;">
+            <div>60 @ <span style="color:#B4BECC;">55¢</span></div>
+            <div>now <span style="color:#B4BECC;">31¢</span></div>
+            <div>conf <span style="color:#B4BECC;">0.88</span></div>
+            <div>win <span style="color:#FF5470;">0.24</span></div>
+          </div>
+          <div style="position:relative; height:5px; border-radius:3px; background:#12171F; margin-top:9px; overflow:hidden;">
+            <div style="position:absolute; left:0; top:0; bottom:0; width:100%; background:linear-gradient(90deg,#7A2E3C,#FF5470);"></div>
+            <div style="position:absolute; left:63%; top:-3px; bottom:-3px; width:2px; background:#E6EAF2;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2; margin-top:4px;">
+            <div>86.0</div><div style="color:#FF5470;">87.2 now → 88.0 proj ✕</div><div>87.9</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden; flex:1; min-height:0; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28; flex:none;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5;">DECISION LOG</div>
+          <div style="display:flex; gap:10px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">
+            <div><span style="color:#2BD98A;">3</span> filled</div>
+            <div><span style="color:#9AA5B5;">5</span> skipped</div>
+          </div>
+        </div>
+        <div style="flex:1; min-height:0; overflow-y:auto;">
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 27 13:00</div>
+                <div style="font-size:12px; font-weight:600;">New York</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#2BD98A; background:rgba(43,217,138,.09); border:1px solid rgba(43,217,138,.24); padding:1.5px 5px; border-radius:3px;">FILLED</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#B4BECC;">41 @ 62¢</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 82.8 · conf 0.88 · σ 0.62 · model 71.2% vs market 62% → edge 9.2¢</div>
+          </div>
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 27 14:00</div>
+                <div style="font-size:12px; font-weight:600;">Chicago</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#2BD98A; background:rgba(43,217,138,.09); border:1px solid rgba(43,217,138,.24); padding:1.5px 5px; border-radius:3px;">FILLED</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#B4BECC;">60 @ 55¢</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 88.4 · conf 0.57 · σ 2.76 · model 59.1% vs market 55% → edge 4.1¢</div>
+          </div>
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F; opacity:.72;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 27 13:00</div>
+                <div style="font-size:12px; font-weight:600;">Austin</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#9AA5B5; border:1px solid #232B38; padding:1.5px 5px; border-radius:3px;">SKIPPED</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#939EAF;">budget cap</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 98.2 · daily cap reached (2/2 orders) · edge 11.4¢ forfeited</div>
+          </div>
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F; opacity:.72;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 26 13:00</div>
+                <div style="font-size:12px; font-weight:600;">Miami</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#9AA5B5; border:1px solid #232B38; padding:1.5px 5px; border-radius:3px;">SKIPPED</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#939EAF;">spread too wide</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 92.2 · σ 2.16 · ask 1¢ &lt; min_yes_ask 2¢ · market disagrees</div>
+          </div>
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 26 14:00</div>
+                <div style="font-size:12px; font-weight:600;">Chicago</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#58A6FF; background:rgba(88,166,255,.09); border:1px solid rgba(88,166,255,.24); padding:1.5px 5px; border-radius:3px;">SETTLED ✓</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#2BD98A;">+$118.00</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 90.8 · actual 90.4 · err 0.40° · bracket 90–91.9 hit</div>
+          </div>
+
+          <div style="padding:9px 12px; border-bottom:1px solid #12171F;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 25 13:00</div>
+                <div style="font-size:12px; font-weight:600;">New York</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#58A6FF; background:rgba(88,166,255,.09); border:1px solid rgba(88,166,255,.24); padding:1.5px 5px; border-radius:3px;">SETTLED ✓</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#2BD98A;">+$92.00</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 81.7 · actual 81.9 · err 0.20° · bracket 80–81.9 hit</div>
+          </div>
+
+          <div style="padding:9px 12px; opacity:.72;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between;">
+              <div style="display:flex; align-items:baseline; gap:8px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2;">JUL 25 14:00</div>
+                <div style="font-size:12px; font-weight:600;">Chicago</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.08em; color:#FF5470; background:rgba(255,84,112,.08); border:1px solid rgba(255,84,112,.24); padding:1.5px 5px; border-radius:3px;">SETTLED ✕</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#FF5470;">−$49.00</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">pred 79.6 · actual 82.1 · err 2.50° · non-monotonic intraday, late surge</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { clock: '2:47:12 PM EDT' };
+  componentDidMount() {
+    let t = new Date(2026, 6, 27, 14, 47, 12);
+    this.timer = setInterval(() => {
+      t = new Date(t.getTime() + 1000);
+      const h = t.getHours() % 12 || 12;
+      const p = n => String(n).padStart(2, '0');
+      this.setState({ clock: `${h}:${p(t.getMinutes())}:${p(t.getSeconds())} PM EDT` });
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() { return { clock: this.state.clock }; }
+}
+</script>
+</body>
+</html>
