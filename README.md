@@ -67,7 +67,7 @@ Entries are only half the job — a bought position can drift from profitable to
 - **Morning positions** (`morning_entries.csv`) — obs-based danger exits, win-capture, and resting limit sells, checked 10:30–12:30 ET.
 - **Daily-trade positions** (`--live`) — the 1–2 PM `run_trade.sh` orders are managed directly from Kalshi's live portfolio, checked every 30 min 13:30–18:00 ET, with two triggers:
   - **Obs bucket-breach stop-loss** — sells when the projected high moves outside the market's temperature bucket by `--danger-threshold-f` (default 1.5°F). *Example: a "79° or below" contract bought while the model liked it, then Chicago's projected high climbs to 86° — the position is sold near the current bid instead of settling to $0.*
-  - **Trailing stop** — tracks the peak YES bid since entry and sells on a `WT_EXIT_TRAIL_CENTS` (default 10¢) retrace, once the position is up at least `WT_EXIT_TRAIL_ARM_GAIN_CENTS` (default 8¢). Locks in gains on a position that ran up before it fades.
+  - **Trailing stop (take-profit)** — tracks the peak YES bid since entry and sells on a `WT_EXIT_TRAIL_CENTS` (default 10¢) retrace, once the position is up at least `WT_EXIT_TRAIL_ARM_GAIN_CENTS` (default 8¢). Locks in gains on a position that ran up before it fades.
 
 Peak-bid state persists in `Data/exit_trailing_state.json`. Like the rest of the pipeline, the exit manager is **dry-run by default** and only places real sells when `WT_SEND_ORDERS=true`. Open positions and their live P&L are visible in the dashboard's **Open Positions** panel.
 
@@ -200,6 +200,30 @@ Eight sources are scored continuously against NWS CLI actuals. Weights are updat
 | **Google Weather** | Very low weight (<1%) | Included but rarely decisive |
 | **Weather.gov (NWS)** | Very low weight (<1%) | Ironically not the most accurate at forecast time |
 | ~~LSTM~~ | **Retired** | Was 20–35°F off due to stale training data |
+
+### Who To Trust — Live Source Leaderboard
+
+The dashboard's **Source Accuracy** panel ranks every source by mean absolute error against NWS settlement truth. This is the single most useful "who do I trust" signal the system produces, from **6,971 scored** forecast/actual pairs:
+
+| Rank | Source | MAE (°F) | Trust |
+|------|--------|----------|-------|
+| 1 | **Visual Crossing** | **0.86** | ✅ Sharpest source — the only one that beats the blended ensemble |
+| — | *Ensemble (blended)* | *1.20* | *Reference — the weighted consensus the bot actually trades* |
+| 2 | Tomorrow.io | 2.18 | 👍 Solid mid-tier |
+| 3 | Open-Meteo | 2.61 | 👍 Solid mid-tier |
+| 4 | Pirate Weather | 2.62 | 👍 Reliable background signal |
+| 5 | WeatherAPI | 3.34 | ⚠️ Runs warm — useful as a divergence flag, not a primary |
+| 6 | OpenWeatherMap | 8.24 | ❌ Low value |
+| 7 | Google Weather | 10.05 | ❌ Low value |
+| 8 | ~~LSTM~~ | 12.22 | ❌ Retired (stale training data) |
+| 9 | Weather.gov (NWS) | 14.80 | ❌ Worst — see below |
+
+**The learning:**
+
+- **Trust Visual Crossing above everything.** At 0.86°F it is the only individual source that beats the blended ensemble (1.20°F). When it disagrees with the pack, it is usually right.
+- **The ensemble beats every other single source.** Inverse-MAE weighting lets the good sources dominate and keeps the weak ones from doing damage — which is exactly why the bot trades the blend, not any one feed.
+- **Brand recognition ≠ forecast accuracy.** Google (10.05°F) and even **Weather.gov / NWS itself (14.80°F)** rank at the bottom for *forecast-time* next-day highs. NWS is the authority that **settles** the market — that does not make it the best at **predicting** it. Don't confuse the scorekeeper with the sharpest forecaster.
+- **A tight mid-tier of Tomorrow.io, Open-Meteo, and Pirate Weather (~2.2–2.6°F)** provides the diversification that makes the ensemble robust on transition days.
 
 ### Guardrails and Trades Avoided
 
