@@ -271,6 +271,7 @@ BANDIT_REWARDS_CSV = DATA_DIR / "bandit_rewards_history.csv"
 DASHBOARD_HTML_PATH = Path(__file__).resolve().parent / "dashboard_web.html"
 MARKETS_HTML_PATH = Path(__file__).resolve().parent / "markets_web.html"
 ANALYTICS_HTML_PATH = Path(__file__).resolve().parent / "analytics_web.html"
+TERMINAL_HTML_PATH = Path(__file__).resolve().parent / "terminal_web.html"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -418,7 +419,15 @@ async def _warm_markets_cache():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    """Serve the dashboard HTML (same process, no extra server)."""
+    """Serve the Weather Trader Terminal (main dashboard, same process)."""
+    if not TERMINAL_HTML_PATH.exists():
+        raise HTTPException(status_code=404, detail="terminal_web.html not found")
+    return HTMLResponse(content=TERMINAL_HTML_PATH.read_text())
+
+
+@app.get("/classic", response_class=HTMLResponse)
+async def classic_dashboard():
+    """Previous dashboard, kept at /classic."""
     if not DASHBOARD_HTML_PATH.exists():
         raise HTTPException(status_code=404, detail="dashboard_web.html not found")
     return HTMLResponse(content=DASHBOARD_HTML_PATH.read_text())
@@ -449,6 +458,74 @@ async def get_observations():
     if not OBSERVATIONS_JSON.exists():
         return {"stations": {}, "last_update": None}
     return json.loads(OBSERVATIONS_JSON.read_text())
+
+
+def _tail_lines(path: Path, max_bytes: int = 2_000_000) -> List[str]:
+    """Read up to the last max_bytes of a (possibly huge) text file and return complete lines.
+    observations_history.csv is tens of MB; the terminal chart only needs recent rows, so we
+    seek near the end instead of parsing the whole file on every request."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    with open(path, "rb") as f:
+        if size > max_bytes:
+            f.seek(size - max_bytes)
+            f.readline()  # discard the partial first line
+        chunk = f.read()
+    return chunk.decode("utf-8", errors="replace").splitlines()
+
+
+# observations_history.csv column order (see _run_observation_fetch)
+_OBS_HISTORY_COLS = [
+    "timestamp", "city", "stid", "temp", "observed_high_today", "projected_high",
+    "trend_10m", "trend_30m", "trend_1h", "acceleration", "time_temp_will_max",
+]
+
+
+@app.get("/api/observations/series")
+async def get_observations_series(hours: int = 24):
+    """Recent intraday observation series per city (local-day) for the terminal chart.
+    Tails observations_history.csv so we avoid reading the full multi-MB file each call."""
+    if not OBSERVATIONS_HISTORY_CSV.exists():
+        return {"by_city": {}}
+    hours = max(1, min(48, int(hours)))
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    lines = _tail_lines(OBSERVATIONS_HISTORY_CSV)
+    by_city: Dict[str, List[Dict[str, Any]]] = {}
+    for line in lines:
+        if not line or line.startswith("timestamp"):
+            continue
+        cols = line.split(",")
+        if len(cols) < 6:
+            continue
+        row = dict(zip(_OBS_HISTORY_COLS, cols))
+        ts_str = (row.get("timestamp") or "").strip()
+        city = (row.get("city") or "").strip().lower()
+        if not ts_str or not city:
+            continue
+        try:
+            ts = dt.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if ts < cutoff:
+            continue
+        try:
+            temp = float(row.get("temp"))
+        except (TypeError, ValueError):
+            continue
+        try:
+            proj = float(row.get("projected_high"))
+        except (TypeError, ValueError):
+            proj = None
+        by_city.setdefault(city, []).append({
+            "timestamp": ts.isoformat(),
+            "temp": round(temp, 2),
+            "projected_high": proj,
+        })
+    for city, pts in by_city.items():
+        pts.sort(key=lambda p: p["timestamp"])
+    return {"by_city": by_city}
 
 
 @app.get("/api/trade_log")
@@ -871,6 +948,27 @@ def _series_to_city() -> dict:
     kt = _kalshi()
     return {v: k for k, v in kt.SERIES_TICKERS.items()}
 
+def _money_dollars(mp: dict, dollar_key: str, cents_key: str) -> str:
+    """Return a Kalshi money field as a dollar string.
+
+    Prefers the explicit ``*_dollars`` field (already dollars); otherwise treats
+    the sibling field as integer cents and divides by 100. Returns "0" if neither
+    is present so downstream math never sees a None.
+    """
+    v = mp.get(dollar_key)
+    if v is not None and v != "":
+        try:
+            return f"{float(v):.2f}"
+        except (TypeError, ValueError):
+            pass
+    c = mp.get(cents_key)
+    if c is not None and c != "":
+        try:
+            return f"{int(round(float(c))) / 100.0:.2f}"
+        except (TypeError, ValueError):
+            pass
+    return "0"
+
 @app.get("/api/positions")
 async def get_positions(env: str = "prod"):
     """Live positions from Kalshi with current prices and familiar names. Requires Kalshi credentials."""
@@ -893,7 +991,16 @@ async def get_positions(env: str = "prod"):
         event_ticker = _event_ticker_from_market(ticker)
         series = event_ticker.split("-")[0] if "-" in event_ticker else ""
         city = series_to_city.get(series, "")
-        market_exposure_dollars = mp.get("market_exposure_dollars") or "0"
+        # Kalshi returns money fields as integer cents (e.g. market_exposure) and,
+        # on newer responses, also as dollar strings (market_exposure_dollars).
+        # Prefer the dollar string when present, else convert cents → dollars, so
+        # the panel shows real exposure/P&L instead of $0.
+        market_exposure_dollars = _money_dollars(
+            mp, "market_exposure_dollars", "market_exposure"
+        )
+        realized_pnl_dollars = _money_dollars(
+            mp, "realized_pnl_dollars", "realized_pnl"
+        )
         position_fp = mp.get("position_fp") or str(position)
         row = {
             "ticker": ticker,
@@ -902,7 +1009,7 @@ async def get_positions(env: str = "prod"):
             "position": position,
             "position_fp": position_fp,
             "market_exposure_dollars": market_exposure_dollars,
-            "realized_pnl_dollars": mp.get("realized_pnl_dollars") or "0",
+            "realized_pnl_dollars": realized_pnl_dollars,
         }
         try:
             m = _kalshi().get_market(client, ticker)
@@ -1228,7 +1335,7 @@ async def place_order(
         status_resp = client.get("/trade-api/v2/exchange/status")
         if status_resp.status_code == 200 and not status_resp.json().get("trading_active", False):
             raise HTTPException(status_code=400, detail="Exchange trading is not active")
-        resp = client.post("/trade-api/v2/portfolio/orders", order)
+        resp = client.post("/trade-api/v2/portfolio/events/orders", order)
         if resp.status_code != 201:
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
         return {"status": "success", "order": resp.json()}

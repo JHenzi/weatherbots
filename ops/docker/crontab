@@ -43,3 +43,12 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # 12:30 ET: cleanup pass — cancel any unfilled limit sells so positions settle normally at 1PM.
 30 12 * * * cd /app && CLEANUP=true /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
 
+# Afternoon LIVE exit manager for the 1–2 PM daily-trade positions (run_trade.sh).
+# Those record no exit metadata, so LIVE=true manages them straight from Kalshi:
+#   obs bucket-breach stop-loss (projected_high breaches the bucket by >1.5°F) and
+#   trailing stop (YES bid retraces from its peak). Every 30 min 13:30–18:00 ET,
+#   which is the exit window between the buy and evening settlement.
+30 13 * * * cd /app && LIVE=true /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+0,30 14-17 * * * cd /app && LIVE=true /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+0 18 * * * cd /app && LIVE=true /bin/bash /app/scripts/run_exit_manager.sh 2>&1 | tee -a /app/Data/logs/exit_manager.cron.log
+

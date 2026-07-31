@@ -30,6 +30,8 @@ docker compose up -d --build
 open http://localhost:8080  # live dashboard
 ```
 
+![Weather Trader Terminal — live dashboard: per-city bracket race, projected-high chart, source accuracy, open positions with live P&L, and the decision log.](docs/img/dashboard.png)
+
 Minimum required secrets: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`.
 Recommended first run: keep `KALSHI_ENV=demo` and `WT_SEND_ORDERS=false` until you trust the pipeline.
 
@@ -63,6 +65,16 @@ The system tracks signed prediction error per city over a 14-day rolling window.
 ### Intraday refresh and trade gates
 Forecasts refresh every hour. Trade decisions fire at **13:00 local time per city** (NY/FL at 13:00 ET, IL/TX at 14:00 ET). A second intraday pulse runs at 14:00 ET for remaining cities.
 
+### Automated position exits (profit-taking + stop-loss)
+Entries are only half the job — a bought position can drift from profitable to worthless as the day's temperature moves. `exit_manager.py` monitors open positions between entry and settlement and exits early when the odds turn, instead of holding every contract to a $0 or $1 settlement. It runs in two modes:
+
+- **Morning positions** (`morning_entries.csv`) — obs-based danger exits, win-capture, and resting limit sells, checked 10:30–12:30 ET.
+- **Daily-trade positions** (`--live`) — the 1–2 PM `run_trade.sh` orders are managed directly from Kalshi's live portfolio, checked every 30 min 13:30–18:00 ET, with two triggers:
+  - **Obs bucket-breach stop-loss** — sells when the projected high moves outside the market's temperature bucket by `--danger-threshold-f` (default 1.5°F). *Example: a "79° or below" contract bought while the model liked it, then Chicago's projected high climbs to 86° — the position is sold near the current bid instead of settling to $0.*
+  - **Trailing stop** — tracks the peak YES bid since entry and sells on a `WT_EXIT_TRAIL_CENTS` (default 10¢) retrace, once the position is up at least `WT_EXIT_TRAIL_ARM_GAIN_CENTS` (default 8¢). Locks in gains on a position that ran up before it fades.
+
+Peak-bid state persists in `Data/exit_trailing_state.json`. Like the rest of the pipeline, the exit manager is **dry-run by default** and only places real sells when `WT_SEND_ORDERS=true`. Open positions and their live P&L are visible in the dashboard's **Open Positions** panel.
+
 ### Why that can matter in prediction markets
 Weather markets are attractive because they settle on objective public data, update throughout the day, and often show visible disagreement between sources. This repo is built around that edge hypothesis: if you can measure forecast quality better than the market prices it, you may be able to find better entries than a casual trader.
 
@@ -87,6 +99,7 @@ intraday_pulse.py          ← fetch forecasts, run bandit, write predictions_la
     └── bandit/modes.py    ← blend = forecast + bias_correction_f
     └── bandit/context.py  ← sky/condition voting from provider payloads
 kalshi_trader.py           ← read predictions, select market bucket, place orders
+exit_manager.py            ← monitor open positions; obs bucket-breach + trailing-stop exits
 calibrate_sources.py       ← nightly: update source weights from settled actuals
 bandit_update.py           ← nightly: update bandit policy from settled rewards
 update_city_metadata.py    ← nightly: update per-city MAE + rolling bias correction
@@ -121,6 +134,8 @@ update_city_metadata.py    ← nightly: update per-city MAE + rolling bias corre
 | `WT_DAILY_BUDGET` | `50` | Max dollars per day across all cities |
 | `WT_BANDIT_MODE` | `live` | Bandit mode: `off` / `shadow` / `canary` / `live` |
 | `WT_BANDIT_ALPHA` | `0.7` | LinUCB exploration parameter |
+| `WT_EXIT_TRAIL_CENTS` | `10` | Trailing-stop: sell when YES bid retraces this many ¢ from its peak |
+| `WT_EXIT_TRAIL_ARM_GAIN_CENTS` | `8` | Trailing-stop arms only once peak bid is this many ¢ above entry |
 
 > [!TIP]
 > **Full env var table:** [Environment variables](documentation/environment_variables.md)

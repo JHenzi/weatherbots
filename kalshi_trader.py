@@ -454,7 +454,8 @@ def cancel_order(client: KalshiHttpClient, order_id: str) -> bool:
     Cancel a resting order by order_id.
     Returns True on success (204 No Content or 200), False if the order was not found.
     """
-    path = f"/trade-api/v2/portfolio/orders/{order_id}"
+    # Cancel moved to the /events/orders path (old /portfolio/orders/{id} now 410s).
+    path = f"/trade-api/v2/portfolio/events/orders/{order_id}"
     resp = client.delete(path)
     if resp.status_code in (200, 204):
         return True
@@ -474,7 +475,7 @@ def build_order_v2(
     time_in_force: str = "good_till_canceled",
 ) -> dict:
     """
-    Build a Kalshi /trade-api/v2/portfolio/orders request body.
+    Build a Kalshi /trade-api/v2/portfolio/events/orders request body.
 
     Kalshi's v2 order endpoint dropped the old v1-style fields (action,
     type, yes_price/no_price as integer cents) in favor of an order
@@ -540,7 +541,7 @@ def place_sell_order(
         price_cents=yes_price,
         client_order_id=client_order_id,
     )
-    resp = client.post("/trade-api/v2/portfolio/orders", order)
+    resp = client.post("/trade-api/v2/portfolio/events/orders", order)
     if resp.status_code != 201:
         raise RuntimeError(f"Sell order failed for {ticker}: {resp.status_code} {resp.text}")
     return resp.json()
@@ -1090,7 +1091,7 @@ def make_trade(
         price_cents=price_cents,
     )
 
-    resp = client.post("/trade-api/v2/portfolio/orders", order)
+    resp = client.post("/trade-api/v2/portfolio/events/orders", order)
     if resp.status_code != 201:
         raise RuntimeError(f"Order failed: {resp.status_code} {resp.text}")
     

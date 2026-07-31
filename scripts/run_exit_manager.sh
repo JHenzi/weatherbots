@@ -34,6 +34,12 @@ ARGS=(
   --trade-date "$TRADE_DATE"
 )
 
+# LIVE mode manages the 1–2 PM daily-trade positions straight from Kalshi
+# (obs bucket-breach + trailing stop). Morning positions use the CSV path.
+if [[ "${LIVE:-false}" == "true" ]] || [[ "${1:-}" == "--live" ]]; then
+  ARGS+=(--live)
+fi
+
 # Pass --cleanup flag when script is called for the 12:30 cleanup pass.
 if [[ "${CLEANUP:-false}" == "true" ]] || [[ "${1:-}" == "--cleanup" ]]; then
   ARGS+=(--cleanup)

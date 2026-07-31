@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Trader Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#07090D; }
+  body { font-family:'Space Grotesk', system-ui, sans-serif; -webkit-font-smoothing:antialiased; color:#E6EAF2; }
+  * { box-sizing:border-box; }
+  a { color:#58A6FF; text-decoration:none; }
+  a:hover { color:#8CC2FF; }
+  .mono { font-family:'JetBrains Mono', monospace; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#1E2531; border-radius:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  @keyframes wtPulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.82); } }
+  @keyframes wtBreathe { 0%,100% { box-shadow:0 0 0 0 rgba(255,84,112,.28); } 50% { box-shadow:0 0 0 7px rgba(255,84,112,0); } }
+  @keyframes wtSweep { 0% { transform:translateX(-100%); } 100% { transform:translateX(320%); } }
+  @keyframes wtDash { to { stroke-dashoffset:-24; } }
+  @keyframes wtRise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  .panel { border:1px solid #171D28; border-radius:8px; background:#0D1119; overflow:hidden; }
+  .phead { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid #171D28; }
+  .plabel { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.14em; color:#9AA5B5; }
+  .pmeta { font-family:'JetBrains Mono',monospace; font-size:9px; color:#8791A2; }
+  .navlink { font-size:12px; font-weight:500; padding:6px 11px; border-radius:5px; color:#9AA5B5; cursor:pointer; }
+  .navlink:hover { color:#E6EAF2; background:#12171F; }
+  .navlink.active { font-weight:600; background:#171D28; color:#E6EAF2; }
+  .clickrow { cursor:pointer; }
+  .clickrow:hover { background:#10151D; }
+</style>
+</head>
+<body>
+<div style="min-width:1360px; height:100vh; min-height:840px; display:flex; flex-direction:column; background:#07090D;">
+
+  <header style="height:54px; flex:none; display:flex; align-items:center; gap:24px; padding:0 18px; border-bottom:1px solid #171D28; background:linear-gradient(180deg,#0D1119,#0A0E14);">
+    <div style="display:flex; align-items:center; gap:9px;">
+      <div id="live-dot" style="width:8px; height:8px; border-radius:50%; background:#2BD98A; animation:wtPulse 2.4s ease-in-out infinite;"></div>
+      <div style="font-size:15px; font-weight:700; letter-spacing:-0.01em;">Weather Trader</div>
+      <div id="live-badge" class="mono" style="font-size:9px; font-weight:500; letter-spacing:.14em; color:#2BD98A; border:1px solid rgba(43,217,138,.3); background:rgba(43,217,138,.07); padding:3px 6px; border-radius:3px;">LIVE</div>
+    </div>
+    <nav style="display:flex; gap:2px;">
+      <a class="navlink active" href="/">Terminal</a>
+      <a class="navlink" href="/markets">New Markets</a>
+      <a class="navlink" href="/analytics">Analytics</a>
+      <a class="navlink" href="/classic">Classic</a>
+    </nav>
+    <div style="flex:1;"></div>
+    <div style="display:flex; align-items:stretch; gap:0;" class="mono">
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">EXPOSURE</div>
+        <div id="hdr-exposure" style="font-size:14px; font-weight:500; margin-top:2px;">—</div>
+      </div>
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">OPEN P&amp;L</div>
+        <div id="hdr-pnl" style="font-size:14px; font-weight:500; margin-top:2px; color:#9AA5B5;">—</div>
+      </div>
+      <div style="padding:0 16px; border-left:1px solid #171D28;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;">POSITIONS</div>
+        <div id="hdr-positions" style="font-size:14px; font-weight:500; margin-top:2px;">—</div>
+      </div>
+      <div style="padding:0 4px 0 16px; border-left:1px solid #171D28; text-align:right;">
+        <div style="font-size:9px; letter-spacing:.12em; color:#939EAF;"><span id="hdr-obs-label">OBS</span></div>
+        <div id="hdr-clock" style="font-size:14px; font-weight:500; margin-top:2px; color:#58A6FF;">—</div>
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1; min-height:0; display:grid; grid-template-columns:296px minmax(0,1fr) 400px; gap:10px; padding:10px;">
+
+    <!-- ══ COLUMN A ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div class="panel">
+        <div class="phead">
+          <div class="plabel">MARKETS · BRACKET RACE</div>
+          <div class="pmeta">4 CITIES</div>
+        </div>
+        <div id="bracket-race"></div>
+      </div>
+
+      <div class="panel">
+        <div class="phead">
+          <div class="plabel">SOURCE ACCURACY · MAE</div>
+          <div id="mae-meta" class="pmeta">—</div>
+        </div>
+        <div id="source-accuracy" style="padding:10px 12px; display:flex; flex-direction:column; gap:6px;" class="mono"></div>
+      </div>
+
+      <div class="panel" style="flex:1; min-height:132px; display:flex; flex-direction:column;">
+        <div class="phead">
+          <div class="plabel">BEST HOUR TO ENTER</div>
+          <div id="besthour-meta" class="pmeta" style="color:#2BD98A;">—</div>
+        </div>
+        <div id="best-hour" style="flex:1; display:flex; align-items:flex-end; gap:6px; padding:12px;"></div>
+      </div>
+    </div>
+
+    <!-- ══ COLUMN B ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div style="border:1px solid #1E2531; border-radius:8px; background:linear-gradient(180deg,#0F131B,#0B0F15); flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #171D28;">
+          <div style="display:flex; align-items:baseline; gap:12px;">
+            <div id="focus-name" style="font-size:16px; font-weight:700; letter-spacing:-0.01em;">—</div>
+            <div id="focus-sub" class="mono" style="font-size:10px; color:#939EAF; white-space:nowrap;">—</div>
+          </div>
+          <div style="display:flex; gap:20px;" class="mono">
+            <div style="text-align:right;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">NOW</div><div id="focus-now" style="font-size:19px; font-weight:500; margin-top:1px;">—</div></div>
+            <div style="text-align:right;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">PROJ HIGH</div><div id="focus-proj" style="font-size:19px; font-weight:500; margin-top:1px; color:#FF8FA3;">—</div></div>
+            <div style="text-align:right;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">TREND</div><div id="focus-trend" style="font-size:19px; font-weight:500; margin-top:1px;">—</div></div>
+            <div style="text-align:right;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">CONF</div><div id="focus-conf" style="font-size:19px; font-weight:500; margin-top:1px;">—</div></div>
+          </div>
+        </div>
+        <div id="chart-wrap" style="flex:1; min-height:0; position:relative; padding:14px 16px 6px 42px;"></div>
+        <div id="chart-axis" style="display:flex; justify-content:space-between; padding:0 16px 8px 42px;" class="mono" style-x="font-size:9px; color:#8791A2;"></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 320px; gap:10px; flex:none;">
+        <div class="panel">
+          <div class="phead">
+            <div class="plabel" style="white-space:nowrap;">SOURCE SPREAD</div>
+            <div id="spread-meta" class="pmeta" style="white-space:nowrap;">—</div>
+          </div>
+          <div id="source-spread" style="padding:20px 16px 12px;"></div>
+        </div>
+
+        <div class="panel">
+          <div class="phead">
+            <div class="plabel">CONFIDENCE &amp; SPREAD</div>
+            <div id="conf-meta" class="pmeta" style="color:#A78BFA;">—</div>
+          </div>
+          <div id="confidence-panel" style="padding:14px 12px 12px;"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:none;">
+        <div class="phead">
+          <div style="display:flex; align-items:baseline; gap:10px;">
+            <div class="plabel">NEXT TRADE MATRIX</div>
+            <div id="matrix-date" class="mono" style="font-size:10px; color:#E6EAF2;">—</div>
+          </div>
+          <div class="pmeta">CELLS TINTED BY SOURCE MAE</div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse;" class="mono">
+            <thead>
+              <tr style="color:#939EAF; font-size:9px; letter-spacing:.08em;">
+                <th style="text-align:left; padding:7px 12px; font-weight:500;">CITY</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">PRED</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">CONF</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">σ</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500; border-left:1px solid #171D28;">O-METEO</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">TMRW</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">VC</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">NWS</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">WAPI</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">GOOG</th>
+                <th style="text-align:right; padding:7px 8px; font-weight:500;">OWM</th>
+                <th style="text-align:right; padding:7px 12px; font-weight:500;">PIRATE</th>
+              </tr>
+            </thead>
+            <tbody id="trade-matrix"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ COLUMN C ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+
+      <div id="signal-card"></div>
+
+      <div class="panel" style="flex:none;">
+        <div class="phead">
+          <div class="plabel">OPEN POSITIONS</div>
+          <div id="positions-net" class="pmeta">—</div>
+        </div>
+        <div id="open-positions"></div>
+      </div>
+
+      <div class="panel" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+        <div class="phead" style="flex:none;">
+          <div class="plabel">DECISION LOG</div>
+          <div id="log-counts" style="display:flex; gap:10px;" class="pmeta"></div>
+        </div>
+        <div id="decision-log" style="flex:1; min-height:0; overflow-y:auto;"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API_BASE = '/api';
+const CITIES = {
+  ny: { name:'New York', station:'KNYC' },
+  il: { name:'Chicago',  station:'KMDW' },
+  tx: { name:'Austin',   station:'KAUS' },
+  fl: { name:'Miami',    station:'KMIA' },
+};
+const CITY_ORDER = ['ny','il','tx','fl'];
+const MATRIX_SOURCES = [
+  { key:'tmax_open_meteo',      label:'O-METEO', perf:'open-meteo' },
+  { key:'tmax_tomorrow',        label:'TMRW',    perf:'tomorrow' },
+  { key:'tmax_visual_crossing', label:'VC',      perf:'visual-crossing' },
+  { key:'tmax_weather_gov',     label:'NWS',     perf:'weather.gov' },
+  { key:'tmax_weatherapi',      label:'WAPI',    perf:'weatherapi' },
+  { key:'tmax_google_weather',  label:'GOOG',    perf:'google-weather' },
+  { key:'tmax_openweathermap',  label:'OWM',     perf:'openweathermap' },
+  { key:'tmax_pirateweather',   label:'PIRATE',  perf:'pirateweather' },
+];
+const COL = { green:'#2BD98A', greenDim:'#69D9A0', blue:'#58A6FF', amber:'#FFB84D', red:'#FF5470', pink:'#FF8FA3', purple:'#A78BFA', mute:'#9AA5B5', faint:'#8791A2' };
+
+let focusCity = 'il';
+let userPinnedFocus = false;
+
+// ---------- helpers ----------
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function num(v){ const n = parseFloat(v); return isNaN(n) ? null : n; }
+function fx(v, d=1){ const n = num(v); return n==null ? '—' : n.toFixed(d); }
+function money(v){ const n = num(v); if(n==null) return '—'; const s = n<0?'−':(n>0?'+':''); return s + '$' + Math.abs(n).toFixed(2); }
+function maeColor(mae){ const n = num(mae); if(n==null) return COL.mute; if(n<=1.0) return COL.green; if(n<=1.3) return COL.greenDim; if(n<=1.6) return COL.amber; return COL.red; }
+function trendColor(t){ const n = num(t)||0; if(n>=1.5) return COL.red; if(n>=0.7) return COL.amber; if(n>0) return COL.blue; return COL.mute; }
+async function getJSON(path){ try { const r = await fetch(API_BASE+path); if(!r.ok) return null; return await r.json(); } catch(e){ return null; } }
+
+// bracket derived from a projected/observed high (Kalshi high-temp brackets ~2°F wide)
+function bracketFor(highF){ const n = num(highF); if(n==null) return null; const lo = Math.floor(n); return { lo, hi:lo+1.9, label:`${lo}–${lo+1}.9` }; }
+
+// ---------- live clock ----------
+function tickClock(){
+  const el = document.getElementById('hdr-clock');
+  // Only overwrite with wall clock if we have no obs time yet
+  if (el && el.dataset.obs !== '1') {
+    el.textContent = new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit',second:'2-digit'});
+  }
+}
+setInterval(tickClock, 1000);
+
+// ---------- Column A: bracket race ----------
+function renderBracketRace(obs, sun, atRisk, positions){
+  const stations = (obs && obs.stations) || {};
+  const arByCity = {};
+  ((atRisk && atRisk.at_risk) || []).forEach(a => { arByCity[a.city] = a; });
+  const posByCity = {};
+  ((positions && positions.positions) || []).forEach(p => { if(p.city) posByCity[p.city] = p; });
+
+  const rows = CITY_ORDER.map((c, i) => {
+    const st = stations[c]; if(!st) return '';
+    const meta = CITIES[c];
+    const sp = ((sun && sun.by_city) || {})[c] || {};
+    const temp = num(st.temp), proj = num(st.projected_high), trend = num(st.trend_1h)||0;
+    const br = bracketFor(proj);
+    const ar = arByCity[c];
+    const isRisk = ar && ar.best_value;
+    const accent = isRisk ? COL.red : (ar ? COL.blue : (trend>0 ? trendColor(trend) : '#1E2531'));
+    const progress = Math.max(2, Math.min(100, num(sp.progress)||0));
+    // right-side badge: EV edge if at-risk, else neutral bracket note
+    let badge = `<div class="mono" style="font-size:9px; color:${COL.faint};">${sp.past_peak ? 'HIGH SET' : 'WARMING'}</div>`;
+    if (ar && ar.ev_cents != null) {
+      badge = `<div class="mono" style="font-size:9px; color:${COL.blue};">EDGE ${fx(ar.ev_cents,1)}¢</div>`;
+    }
+    const focusRing = (c===focusCity) ? 'box-shadow:inset 3px 0 0 '+accent+';' : '';
+    const bg = isRisk ? `background:linear-gradient(90deg,rgba(255,84,112,.08),rgba(255,84,112,0) 60%);` : '';
+    const border = i < CITY_ORDER.length-1 ? 'border-bottom:1px solid #12171F;' : '';
+    const tempColor = isRisk ? '#FFD5DD' : (trend>0 ? '#E6EAF2' : COL.mute);
+    return `<div class="clickrow" data-city="${c}" style="padding:10px 12px; ${border} border-left:2px solid ${accent}; ${bg} display:flex; flex-direction:column; gap:6px; ${focusRing}">
+      <div style="display:flex; align-items:baseline; justify-content:space-between;">
+        <div style="display:flex; align-items:baseline; gap:7px;">
+          <div style="font-size:13px; font-weight:600;">${esc(meta.name)}</div>
+          <div class="mono" style="font-size:9px; color:${COL.faint};">${esc(meta.station)}</div>
+          ${isRisk ? `<div class="mono" style="font-size:8px; letter-spacing:.1em; color:${COL.red}; border:1px solid rgba(255,84,112,.35); padding:1.5px 4px; border-radius:3px;">AT RISK</div>` : ''}
+        </div>
+        ${badge}
+      </div>
+      <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+        <div style="display:flex; align-items:baseline; gap:6px;">
+          <div class="mono" style="font-size:22px; font-weight:500; letter-spacing:-0.02em; color:${tempColor};">${fx(temp,1)}°</div>
+          <div class="mono" style="font-size:10px; color:${isRisk?COL.red:COL.mute};">→ ${fx(proj,1)}</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;" class="mono">
+        <div style="font-size:9.5px; color:${trendColor(trend)};">${trend>=0?'↑':'↓'}${fx(Math.abs(trend),2)}°/hr</div>
+        <div style="flex:1; height:3px; border-radius:2px; background:#171D28; overflow:hidden;"><div style="width:${progress}%; height:100%; background:${accent};"></div></div>
+        <div style="font-size:9.5px; color:${COL.mute};">${br?br.label:'—'}</div>
+      </div>
+    </div>`;
+  }).join('');
+  const el = document.getElementById('bracket-race');
+  el.innerHTML = rows || '<div style="padding:16px; color:#8791A2; font-size:12px;">No observations yet.</div>';
+  el.querySelectorAll('.clickrow').forEach(r => r.addEventListener('click', () => {
+    focusCity = r.dataset.city; userPinnedFocus = true; renderAll();
+  }));
+}
+
+// ---------- Column A: source accuracy ----------
+function renderSourceAccuracy(mae){
+  const el = document.getElementById('source-accuracy');
+  const bySource = (mae && mae.by_source) || [];
+  if(!bySource.length){ el.innerHTML = '<div style="color:#8791A2; font-size:10px;">No scored forecasts yet.</div>'; document.getElementById('mae-meta').textContent='—'; return; }
+  // pull out the consensus/ensemble row so it can headline the panel like the design
+  const ensemble = bySource.find(s => /consensus|ensemble/i.test(s.source_name));
+  const rest = bySource.filter(s => !/consensus|ensemble/i.test(s.source_name)).sort((a,b)=> num(a.mae)-num(b.mae));
+  const maxMae = Math.max(...bySource.map(s=>num(s.mae)||0), 1);
+  const totalN = bySource.reduce((s,x)=> s+(num(x.n)||0), 0);
+  document.getElementById('mae-meta').textContent = totalN.toLocaleString()+' SCORED';
+  const nameMap = { 'open-meteo':'Open-Meteo','tomorrow':'Tomorrow','visual-crossing':'Visual Cross','weather.gov':'NWS','weatherapi':'WeatherAPI','google-weather':'Google','openweathermap':'OpenWeather','pirateweather':'Pirate','consensus':'ENSEMBLE','ensemble':'ENSEMBLE' };
+  const row = (s, ens) => {
+    const c = ens ? COL.purple : maeColor(s.mae);
+    const w = Math.max(6, (num(s.mae)/maxMae)*100);
+    const label = nameMap[s.source_name] || s.source_name;
+    const extra = ens ? 'padding-bottom:6px; border-bottom:1px dashed #1A2029;' : '';
+    const strong = ens ? 'font-weight:700;' : '';
+    return `<div style="display:grid; grid-template-columns:74px 1fr 34px; align-items:center; gap:8px; font-size:10px; ${extra}">
+      <div style="color:${ens?c:'#B4BECC'}; ${strong}">${esc(label)}</div>
+      <div style="height:6px; border-radius:3px; background:#12171F; overflow:hidden;"><div style="width:${w}%; height:100%; background:${c};"></div></div>
+      <div style="text-align:right; color:${c}; ${strong}">${fx(s.mae,2)}</div>
+    </div>`;
+  };
+  el.innerHTML = (ensemble ? row(ensemble, true) : '') + rest.map(s=>row(s,false)).join('');
+}
+
+// ---------- Column A: best hour to enter ----------
+function renderBestHour(lockIn){
+  const el = document.getElementById('best-hour');
+  const rows = (lockIn && lockIn.by_city_hour) || [];
+  if(!rows.length){ el.innerHTML='<div style="color:#8791A2; font-size:10px; margin:auto;">Not enough settled data.</div>'; document.getElementById('besthour-meta').textContent='—'; return; }
+  // aggregate across cities: weighted mean MAE per hour
+  const agg = {};
+  rows.forEach(r => { const h=+r.hour; const n=num(r.n)||0; const m=num(r.mae)||0; if(!agg[h]) agg[h]={sum:0,n:0}; agg[h].sum+=m*n; agg[h].n+=n; });
+  let hours = Object.keys(agg).map(h=>({hour:+h, mae: agg[h].n? agg[h].sum/agg[h].n : 0, n:agg[h].n}))
+                    .filter(x=>x.n>0).sort((a,b)=>a.hour-b.hour);
+  // focus on daytime trading window
+  hours = hours.filter(x => x.hour>=7 && x.hour<=21);
+  if(!hours.length){ el.innerHTML='<div style="color:#8791A2; font-size:10px; margin:auto;">Not enough settled data.</div>'; return; }
+  const maxMae = Math.max(...hours.map(x=>x.mae));
+  const best = hours.reduce((a,b)=> b.mae<a.mae?b:a, hours[0]);
+  document.getElementById('besthour-meta').textContent = `${String(best.hour).padStart(2,'0')}:00 · MAE ${best.mae.toFixed(2)}`;
+  el.innerHTML = hours.map(x => {
+    const isBest = x.hour===best.hour;
+    const h = Math.max(6, Math.round((x.mae/maxMae)*56));
+    const bg = isBest ? COL.green : (x.mae < maxMae*0.6 ? '#2F6B54' : (x.mae < maxMae*0.85 ? '#33405A' : '#2A3444'));
+    const glow = isBest ? 'box-shadow:0 0 12px rgba(43,217,138,.35);' : '';
+    return `<div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;" title="MAE ${x.mae.toFixed(2)} (n=${x.n})">
+      <div style="width:100%; height:${h}px; background:${bg}; border-radius:2px 2px 0 0; ${glow}"></div>
+      <div class="mono" style="font-size:8.5px; color:${isBest?COL.green:'#939EAF'};">${String(x.hour).padStart(2,'0')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---------- Column B: main chart ----------
+function renderChart(series, obs, sun, preds){
+  const wrap = document.getElementById('chart-wrap');
+  const axis = document.getElementById('chart-axis');
+  const st = ((obs && obs.stations) || {})[focusCity] || {};
+  const meta = CITIES[focusCity];
+  const pred = (preds || {})[focusCity] || {};
+  const sp = ((sun && sun.by_city) || {})[focusCity] || {};
+
+  document.getElementById('focus-name').textContent = meta ? meta.name : focusCity;
+  document.getElementById('focus-sub').textContent = `${meta?meta.station:''} · ${st.timestamp ? new Date(st.timestamp).toLocaleDateString() : ''}`;
+  document.getElementById('focus-now').textContent = fx(st.temp,1)+'°';
+  document.getElementById('focus-proj').textContent = fx(st.projected_high,1)+'°';
+  const trend = num(st.trend_1h)||0;
+  const ftrend = document.getElementById('focus-trend');
+  ftrend.textContent = (trend>=0?'+':'−')+fx(Math.abs(trend),2); ftrend.style.color = trendColor(trend);
+  document.getElementById('focus-conf').textContent = fx(pred.confidence_score,2);
+
+  const pts = ((series && series.by_city) || {})[focusCity] || [];
+  if(pts.length < 2){ wrap.innerHTML = '<div style="margin:auto; color:#8791A2; font-size:12px; text-align:center; padding-top:80px;">Collecting intraday observations…</div>'; axis.innerHTML=''; return; }
+
+  const temps = pts.map(p=>num(p.temp)).filter(v=>v!=null);
+  const proj = num(st.projected_high);
+  const br = bracketFor(proj);
+  let ymin = Math.min(...temps), ymax = Math.max(...temps, proj!=null?proj:temps[0]);
+  if(br){ ymax = Math.max(ymax, br.hi); ymin = Math.min(ymin, br.lo); }
+  const pad = Math.max(2, (ymax-ymin)*0.12); ymin -= pad; ymax += pad;
+  const W=900, H=300;
+  const t0 = new Date(pts[0].timestamp).getTime(), t1 = new Date(pts[pts.length-1].timestamp).getTime();
+  const span = Math.max(1, t1-t0);
+  const X = t => ((new Date(t).getTime()-t0)/span)*(W*0.62);   // observed occupies left ~62%
+  const Y = v => H - ((v-ymin)/(ymax-ymin))*H;
+  const line = pts.map(p=>`${X(p.timestamp).toFixed(1)},${Y(num(p.temp)).toFixed(1)}`).join(' ');
+  const nowX = X(pts[pts.length-1].timestamp);
+  const nowY = Y(num(pts[pts.length-1].temp));
+
+  // projection segment from now to projected peak
+  let projPath = '';
+  const highTime = sp.high_time ? new Date(sp.high_time).getTime() : null;
+  if(proj!=null){
+    const peakX = highTime && highTime>t1 ? Math.min(W, ((highTime-t0)/span)*(W*0.62)) : Math.min(W, nowX + W*0.2);
+    projPath = `<polyline points="${nowX.toFixed(1)},${nowY.toFixed(1)} ${peakX.toFixed(1)},${Y(proj).toFixed(1)}" fill="none" stroke="${COL.pink}" stroke-width="2" stroke-dasharray="6 5" stroke-linejoin="round" vector-effect="non-scaling-stroke" style="animation:wtDash 1.6s linear infinite;"/>
+      <circle cx="${peakX.toFixed(1)}" cy="${Y(proj).toFixed(1)}" r="3.5" fill="none" stroke="${COL.pink}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  }
+  const area = `${line} ${nowX.toFixed(1)},${H} 0,${H}`;
+  // bracket band
+  let band = '';
+  if(br){ const yhi=Y(br.hi), ylo=Y(br.lo); band = `<rect x="0" y="${yhi.toFixed(1)}" width="${W}" height="${(ylo-yhi).toFixed(1)}" fill="rgba(88,166,255,.09)"/>
+    <line x1="0" y1="${yhi.toFixed(1)}" x2="${W}" y2="${yhi.toFixed(1)}" stroke="${COL.red}" stroke-width="1" stroke-dasharray="5 4" opacity=".6"/>
+    <line x1="0" y1="${ylo.toFixed(1)}" x2="${W}" y2="${ylo.toFixed(1)}" stroke="${COL.blue}" stroke-width="1" stroke-dasharray="5 4" opacity=".4"/>`; }
+
+  const lineCol = trend>=0.7 ? COL.red : COL.blue;
+  const areaCol = trend>=0.7 ? 'rgba(255,84,112,.10)' : 'rgba(88,166,255,.10)';
+  const breach = (br && proj!=null && proj>br.hi);
+  const breachBadge = breach ? `<div style="position:absolute; right:18px; top:20px; display:flex; align-items:center; gap:6px; font-size:9px; letter-spacing:.1em; color:${COL.red}; background:rgba(255,84,112,.12); border:1px solid rgba(255,84,112,.32); padding:4px 8px; border-radius:3px; white-space:nowrap; animation:wtBreathe 2.6s ease-in-out infinite;" class="mono"><div style="width:5px; height:5px; border-radius:50%; background:${COL.red};"></div>BREACH ZONE${sp.high_time?' · PEAK '+new Date(sp.high_time).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}):''}</div>` : '';
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%; height:100%; display:block; overflow:visible;">
+      ${band}
+      <line x1="0" y1="${(H/2).toFixed(1)}" x2="${W}" y2="${(H/2).toFixed(1)}" stroke="#151B24" stroke-width="1"/>
+      <polygon points="${area}" fill="${areaCol}"/>
+      <polyline points="${line}" fill="none" stroke="${lineCol}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      ${projPath}
+      <line x1="${nowX.toFixed(1)}" y1="0" x2="${nowX.toFixed(1)}" y2="${H}" stroke="#E6EAF2" stroke-width="1" opacity=".3" vector-effect="non-scaling-stroke"/>
+      <circle cx="${nowX.toFixed(1)}" cy="${nowY.toFixed(1)}" r="4.5" fill="${lineCol}" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div style="position:absolute; left:6px; top:14px; bottom:26px; width:34px; text-align:right; pointer-events:none;" class="mono">
+      ${[0,0.25,0.5,0.75,1].map(f=>{ const v=ymax-(ymax-ymin)*f; return `<div style="position:absolute; right:0; top:${(f*100).toFixed(1)}%; transform:translateY(-50%); font-size:9px; color:#939EAF;">${v.toFixed(0)}°</div>`;}).join('')}
+    </div>
+    ${breachBadge}`;
+
+  // x-axis ticks (hourly local labels across observed span)
+  const nTicks = 6;
+  let ticks = '';
+  for(let i=0;i<=nTicks;i++){
+    const t = new Date(t0 + (span*i/nTicks));
+    const lab = t.toLocaleTimeString(undefined,{hour:'2-digit'});
+    const isLast = i===nTicks;
+    ticks += `<div class="mono" style="font-size:9px; color:${isLast?'#E6EAF2':'#8791A2'};">${isLast?'NOW '+t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}):lab}</div>`;
+  }
+  axis.innerHTML = ticks;
+}
+
+// ---------- Column B: source spread ----------
+function renderSourceSpread(preds, mae){
+  const el = document.getElementById('source-spread');
+  const pred = (preds || {})[focusCity] || {};
+  const maeBySource = {};
+  ((mae && mae.by_city_source) || []).forEach(r => { if(r.city===focusCity) maeBySource[r.source_name] = num(r.mae); });
+  const vals = MATRIX_SOURCES.map(s => ({ ...s, v: num(pred[s.key]), mae: maeBySource[s.perf] })).filter(s=>s.v!=null);
+  const ens = num(pred.tmax_predicted);
+  if(vals.length < 2){ el.innerHTML='<div style="color:#8791A2; font-size:10px;">No source spread for this city.</div>'; document.getElementById('spread-meta').textContent='—'; return; }
+  const arr = vals.map(s=>s.v).concat(ens!=null?[ens]:[]);
+  let lo = Math.min(...arr), hi = Math.max(...arr);
+  const sig = num(pred.spread_f);
+  document.getElementById('spread-meta').textContent = `σ ${fx(sig,2)} · ${lo.toFixed(1)}–${hi.toFixed(1)}`;
+  const pad = Math.max(1,(hi-lo)*0.15); lo-=pad; hi+=pad;
+  const pos = v => ((v-lo)/(hi-lo))*100;
+  const dots = vals.map(s => {
+    const c = s.mae!=null ? maeColor(s.mae) : COL.mute;
+    return `<div title="${esc(s.label)} ${s.v.toFixed(1)}°${s.mae!=null?' · MAE '+s.mae.toFixed(2):''}" style="position:absolute; left:${pos(s.v).toFixed(1)}%; top:19px; width:16px; height:16px; margin-left:-8px; border-radius:50%; background:${c}28; border:1.5px solid ${c};"></div>`;
+  }).join('');
+  const ensMark = ens!=null ? `<div style="position:absolute; left:${pos(ens).toFixed(1)}%; top:2px; bottom:2px; width:2px; background:${COL.purple}; box-shadow:0 0 10px rgba(167,139,250,.7);"></div>
+    <div style="position:absolute; left:${pos(ens).toFixed(1)}%; top:-16px; transform:translateX(-50%); font-size:9px; color:${COL.purple}; white-space:nowrap;" class="mono">ENS ${ens.toFixed(1)}</div>` : '';
+  const axLabs = [0,0.25,0.5,0.75,1].map(f=>`<div>${(lo+(hi-lo)*f).toFixed(0)}°</div>`).join('');
+  el.innerHTML = `<div style="position:relative; height:44px;">
+      <div style="position:absolute; left:0; right:0; top:26px; height:2px; background:#171D28;"></div>
+      ${dots}${ensMark}
+    </div>
+    <div style="display:flex; justify-content:space-between; font-size:9px; color:#8791A2; margin-top:2px;" class="mono">${axLabs}</div>
+    <div style="display:flex; gap:12px; margin-top:10px; font-size:9px; color:#939EAF;" class="mono">
+      <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px;height:7px;border-radius:50%;border:1.5px solid ${COL.green};"></div>low MAE</div>
+      <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px;height:7px;border-radius:50%;border:1.5px solid ${COL.amber};"></div>mid</div>
+      <div style="display:flex; align-items:center; gap:5px;"><div style="width:7px;height:7px;border-radius:50%;border:1.5px solid ${COL.red};"></div>high MAE</div>
+    </div>`;
+}
+
+// ---------- Column B: confidence panel ----------
+function renderConfidence(preds){
+  const el = document.getElementById('confidence-panel');
+  const pred = (preds || {})[focusCity] || {};
+  const conf = num(pred.confidence_score), sig = num(pred.spread_f);
+  document.getElementById('conf-meta').textContent = conf!=null ? conf.toFixed(2) : '—';
+  const pct = conf!=null ? Math.max(0,Math.min(100, conf*100)) : 0;
+  const cc = conf==null?COL.mute:(conf>=0.8?COL.green:(conf>=0.6?COL.amber:COL.red));
+  el.innerHTML = `
+    <div style="display:flex; align-items:baseline; gap:8px;">
+      <div class="mono" style="font-size:30px; font-weight:500; color:${cc};">${conf!=null?conf.toFixed(2):'—'}</div>
+      <div style="font-size:10px; color:#939EAF;">model confidence</div>
+    </div>
+    <div style="height:8px; border-radius:4px; background:#12171F; overflow:hidden; margin-top:10px;">
+      <div style="width:${pct}%; height:100%; background:linear-gradient(90deg,${cc}55,${cc});"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:12px;" class="mono">
+      <div><div style="font-size:9px; color:#939EAF; letter-spacing:.1em;">SPREAD σ</div><div style="font-size:15px; margin-top:2px; color:${sig!=null&&sig>2?COL.amber:'#E6EAF2'};">${fx(sig,2)}</div></div>
+      <div style="text-align:right;"><div style="font-size:9px; color:#939EAF; letter-spacing:.1em;">SOURCES</div><div style="font-size:15px; margin-top:2px;">${(pred.forecast_sources||'').split(',').filter(Boolean).length||'—'}</div></div>
+    </div>`;
+}
+
+// ---------- Column B: trade matrix ----------
+function renderMatrix(preds, mae, displayDate){
+  const tbody = document.getElementById('trade-matrix');
+  document.getElementById('matrix-date').textContent = displayDate || '—';
+  const maeBySource = {}; // city -> perf -> mae
+  ((mae && mae.by_city_source) || []).forEach(r => { (maeBySource[r.city]=maeBySource[r.city]||{})[r.source_name]=num(r.mae); });
+  const rows = CITY_ORDER.map(c => {
+    const p = (preds||{})[c]; if(!p) return '';
+    const meta = CITIES[c];
+    const predV = num(p.tmax_predicted);
+    const cells = MATRIX_SOURCES.map(s => {
+      const v = num(p[s.key]);
+      const m = (maeBySource[c]||{})[s.perf];
+      const col = m!=null ? maeColor(m) : COL.mute;
+      const tint = m!=null && m<=1.0 ? 'background:rgba(43,217,138,.05);' : (m!=null && m>1.6 ? 'background:rgba(255,84,112,.05);' : '');
+      const bl = s.key==='tmax_open_meteo' ? 'border-left:1px solid #171D28;' : '';
+      const padR = s.key==='tmax_pirateweather' ? '7px 12px' : '7px 8px';
+      return `<td style="text-align:right; padding:${padR}; color:${col}; ${bl} ${tint}">${v!=null?v.toFixed(1):'—'}</td>`;
+    }).join('');
+    const focus = c===focusCity ? 'background:rgba(88,166,255,.04);' : '';
+    return `<tr class="clickrow" data-city="${c}" style="border-top:1px solid #12171F; ${focus}">
+      <td style="padding:7px 12px; font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;">${esc(meta.name)}</td>
+      <td style="text-align:right; padding:7px 8px; color:${maeColor(1.0)}; font-weight:700;">${predV!=null?predV.toFixed(1):'—'}°</td>
+      <td style="text-align:right; padding:7px 8px; color:#B4BECC;">${fx(p.confidence_score,2)}</td>
+      <td style="text-align:right; padding:7px 8px; color:#9AA5B5;">${fx(p.spread_f,2)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = rows || '<tr><td style="padding:12px; color:#8791A2;">No predictions loaded.</td></tr>';
+  tbody.querySelectorAll('.clickrow').forEach(r => r.addEventListener('click', () => { focusCity=r.dataset.city; userPinnedFocus=true; renderAll(); }));
+}
+
+// ---------- Column C: signal card ----------
+function renderSignal(atRisk, positions, obs){
+  const el = document.getElementById('signal-card');
+  const ar = ((atRisk && atRisk.at_risk) || []).find(a=>a.best_value) || ((atRisk && atRisk.at_risk) || [])[0];
+  if(!ar){
+    el.className='panel'; el.style.flex='none';
+    el.innerHTML = `<div class="phead"><div class="plabel">ADVISOR</div><div class="pmeta">no active signal</div></div>
+      <div style="padding:16px 14px; font-size:12.5px; color:#A2AEBF; line-height:1.5;">No at-risk brackets right now. All monitored cities are tracking their projected brackets, or none are warming fast enough to breach.</div>`;
+    return;
+  }
+  const meta = CITIES[ar.city] || {name:ar.city};
+  const st = ((obs && obs.stations) || {})[ar.city] || {};
+  const noAsk = num(ar.no_ask), yesBid = num(ar.yes_bid), ev = num(ar.ev_cents);
+  el.className=''; el.style.flex='none';
+  el.innerHTML = `
+  <div style="border:1px solid rgba(255,84,112,.35); border-radius:8px; background:linear-gradient(180deg,rgba(255,84,112,.10),#0D1119 70%); overflow:hidden; position:relative;">
+    <div style="position:absolute; inset:0 auto 0 0; width:22%; background:linear-gradient(90deg,transparent,rgba(255,84,112,.07),transparent); animation:wtSweep 4.5s ease-in-out infinite; pointer-events:none;"></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,84,112,.2);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="width:7px; height:7px; border-radius:50%; background:${COL.red}; animation:wtPulse 1.4s ease-in-out infinite;"></div>
+        <div style="font-size:13px; font-weight:700; color:${COL.pink};">Bracket at risk — ${esc(meta.name)}</div>
+      </div>
+      <div class="mono" style="font-size:9px; color:${COL.pink};">BUY NO</div>
+    </div>
+    <div style="padding:12px 14px; position:relative;">
+      <div style="font-size:12.5px; line-height:1.5; color:#C6CEDA;">Temp ${num(st.trend_1h)>0?'climbing':'moving'} <strong style="color:${COL.pink};">${fx(ar.trend_1h,2)}°/hr</strong>${ar.hours_until_peak!=null?` with ${fx(ar.hours_until_peak,1)}h to peak`:''}. Projected high <strong style="color:${COL.pink};">${fx(ar.projected_high,1)}°</strong> exceeds the <strong style="color:#E6EAF2;">${fx(ar.bucket_base,1)}–${fx(ar.bracket_high,1)}</strong> bracket cap${ar.consensus_pred!=null?`; consensus ${fx(ar.consensus_pred,1)}°`:''}.</div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px;" class="mono">
+        <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">NO ASK</div><div style="font-size:14px; margin-top:2px;">${noAsk!=null?noAsk+'¢':'—'}</div></div>
+        <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">EV</div><div style="font-size:14px; margin-top:2px; color:${ev!=null&&ev>0?COL.green:COL.mute};">${ev!=null?(ev>0?'+':'')+ev.toFixed(1)+'¢':'—'}</div></div>
+        <div style="border:1px solid #1E2531; border-radius:5px; padding:7px 9px; background:#0B0F15;"><div style="font-size:9px; letter-spacing:.1em; color:#939EAF;">YES BID</div><div style="font-size:14px; margin-top:2px; color:${COL.blue};">${yesBid!=null?yesBid+'¢':'—'}</div></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <a href="https://kalshi.com/markets/${esc((ar.suggested_ticker||'').split('-')[0].toLowerCase())}" target="_blank" style="flex:1; text-align:center; font-size:12px; font-weight:600; padding:8px; border-radius:5px; background:${COL.blue}; color:#04101F;">Open on Kalshi</a>
+        <div class="mono" style="flex:none; text-align:center; font-size:10px; padding:8px 12px; border-radius:5px; border:1px solid #2A3444; color:#B4BECC; align-self:center;">${esc(ar.suggested_ticker||'')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- Column C: open positions ----------
+function parseBracket(subtitle){
+  if(!subtitle) return null;
+  const m = String(subtitle).match(/(\d{2,3}(?:\.\d)?)\D+(\d{2,3}(?:\.\d)?)/);
+  if(m) return { lo:parseFloat(m[1]), hi:parseFloat(m[2]) };
+  return null;
+}
+function renderPositions(positions, obs){
+  const el = document.getElementById('open-positions');
+  const net = document.getElementById('positions-net');
+  const list = (positions && positions.positions) || [];
+  if(positions && positions.error && !list.length){
+    el.innerHTML = `<div style="padding:14px 12px; font-size:11px; color:#8791A2;">${esc(positions.error)}</div>`;
+    net.textContent = '—'; return;
+  }
+  if(!list.length){ el.innerHTML='<div style="padding:14px 12px; font-size:11px; color:#8791A2;">No open positions.</div>'; net.textContent='FLAT'; return; }
+  let totalPnl = 0, haveP = false;
+  const rows = list.map((p,i) => {
+    const meta = CITIES[p.city] || { name:(p.city||'').toUpperCase() };
+    const exposure = num(p.market_exposure_dollars);
+    const yesBid = num(p.yes_bid);
+    const posn = num(p.position)||0;
+    let pnl = null, cur = null;
+    if(yesBid!=null && exposure!=null){ cur = Math.abs(posn)*yesBid/100; pnl = cur - exposure; totalPnl += pnl; haveP=true; }
+    const pc = pnl==null?COL.mute:(pnl>=0?COL.green:COL.red);
+    const st = ((obs && obs.stations) || {})[p.city] || {};
+    const br = parseBracket(p.market_subtitle);
+    const side = posn>=0 ? 'YES' : 'NO';
+    const sideCol = posn>=0 ? COL.green : COL.red;
+    let bar = '';
+    if(br && num(st.temp)!=null){
+      const t=num(st.temp), proj=num(st.projected_high);
+      const rng = Math.max(0.1, br.hi-br.lo);
+      const cur = Math.max(0,Math.min(100,((t-br.lo)/rng)*100));
+      const pj = proj!=null ? Math.max(0,Math.min(100,((proj-br.lo)/rng)*100)) : null;
+      const inBr = proj!=null && proj>=br.lo && proj<=br.hi;
+      bar = `<div style="position:relative; height:5px; border-radius:3px; background:#12171F; margin-top:9px; overflow:hidden;">
+          <div style="position:absolute; left:0; top:0; bottom:0; width:${cur}%; background:linear-gradient(90deg,${inBr?'#1E7A52':'#7A2E3C'},${inBr?COL.green:COL.red});"></div>
+          ${pj!=null?`<div style="position:absolute; left:${pj}%; top:-3px; bottom:-3px; width:2px; background:#E6EAF2;"></div>`:''}
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:9px; color:#8791A2; margin-top:4px;" class="mono">
+          <div>${br.lo.toFixed(0)}</div><div style="color:${inBr?COL.green:COL.red};">${fx(t,1)} now → ${fx(proj,1)} proj ${inBr?'':'✕'}</div><div>${br.hi.toFixed(0)}</div>
+        </div>`;
+    }
+    const bg = (pnl!=null && pnl<0) ? 'background:rgba(255,84,112,.04);' : '';
+    const border = i<list.length-1 ? 'border-bottom:1px solid #12171F;' : '';
+    return `<div style="padding:11px 12px; ${border} ${bg}">
+      <div style="display:flex; align-items:baseline; justify-content:space-between;">
+        <div style="display:flex; align-items:baseline; gap:8px;">
+          <div style="font-size:13px; font-weight:600;">${esc(meta.name)}</div>
+          <div class="mono" style="font-size:9px; color:${sideCol}; border:1px solid ${sideCol}44; padding:1.5px 5px; border-radius:3px;">${side} ${esc((p.market_subtitle||'').slice(0,10))}</div>
+        </div>
+        <div class="mono" style="font-size:15px; color:${pc};">${pnl!=null?money(pnl):'—'}</div>
+      </div>
+      <div style="display:flex; gap:14px; margin-top:7px; font-size:10px; color:#9AA5B5;" class="mono">
+        <div>${Math.abs(posn)} contracts</div>
+        <div>now <span style="color:#B4BECC;">${yesBid!=null?yesBid+'¢':'—'}</span></div>
+        <div>exp <span style="color:#B4BECC;">$${exposure!=null?exposure.toFixed(0):'—'}</span></div>
+      </div>
+      ${bar}
+    </div>`;
+  }).join('');
+  el.innerHTML = rows;
+  net.innerHTML = haveP ? `NET <span style="color:${totalPnl>=0?COL.green:COL.red};">${money(totalPnl)}</span>` : `${list.length} OPEN`;
+  net.style.color = '#8791A2';
+}
+
+// ---------- Column C: decision log ----------
+function renderDecisionLog(tradeLog){
+  const el = document.getElementById('decision-log');
+  const groups = (tradeLog && tradeLog.groups) || [];
+  const items = [];
+  groups.forEach(g => (g.items||[]).forEach(it => items.push(it)));
+  items.sort((a,b)=> String(b.run_ts||b.trade_date).localeCompare(String(a.run_ts||a.trade_date)));
+  let filled=0, skipped=0;
+  items.forEach(it=>{ if(it.status==='filled') filled++; else if(it.status==='skipped') skipped++; });
+  document.getElementById('log-counts').innerHTML = `<div><span style="color:${COL.green};">${filled}</span> filled</div><div><span style="color:#9AA5B5;">${skipped}</span> skipped</div>`;
+  if(!items.length){ el.innerHTML='<div style="padding:14px 12px; font-size:11px; color:#8791A2;">No decisions logged in range.</div>'; return; }
+  const statusStyle = {
+    filled:  {c:COL.green, bg:'rgba(43,217,138,.09)', bd:'rgba(43,217,138,.24)', t:'FILLED'},
+    planned: {c:COL.blue, bg:'rgba(88,166,255,.09)', bd:'rgba(88,166,255,.24)', t:'PLANNED'},
+    skipped: {c:'#9AA5B5', bg:'transparent', bd:'#232B38', t:'SKIPPED'},
+  };
+  el.innerHTML = items.slice(0,30).map((it,i) => {
+    const meta = CITIES[it.city] || { name:(it.city||'').toUpperCase() };
+    const ss = statusStyle[it.status] || statusStyle.skipped;
+    const dim = it.status==='skipped' ? 'opacity:.72;' : '';
+    const tr = it.trade;
+    const right = tr ? `${tr.count!=null?tr.count:''} @ ${tr.yes_price!=null?tr.yes_price+'¢':(tr.no_price!=null?tr.no_price+'¢':'')}` : (it.status==='skipped'?'skipped':'');
+    const rightCol = tr ? '#B4BECC' : '#939EAF';
+    const when = it.run_ts ? new Date(it.run_ts) : (it.trade_date ? new Date(it.trade_date+'T12:00:00') : null);
+    const whenLab = when && !isNaN(when.getTime()) ? when.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}).toUpperCase() : (it.trade_date||'');
+    const detailBits = [];
+    if(it.pred_tmax_f!=null) detailBits.push(`pred ${fx(it.pred_tmax_f,1)}`);
+    if(it.confidence_score!=null) detailBits.push(`conf ${fx(it.confidence_score,2)}`);
+    if(it.spread_f!=null) detailBits.push(`σ ${fx(it.spread_f,2)}`);
+    const reason = (it.reason||'').replace(/[;_]/g,' ').replace(/\s+/g,' ').trim();
+    const detail = [detailBits.join(' · '), reason].filter(Boolean).join(' · ');
+    const border = i<Math.min(items.length,30)-1 ? 'border-bottom:1px solid #12171F;' : '';
+    return `<div style="padding:9px 12px; ${border} ${dim}">
+      <div style="display:flex; align-items:baseline; justify-content:space-between;">
+        <div style="display:flex; align-items:baseline; gap:8px;">
+          <div class="mono" style="font-size:9px; color:#8791A2;">${esc(whenLab)}</div>
+          <div style="font-size:12px; font-weight:600;">${esc(meta.name)}</div>
+          <div class="mono" style="font-size:8.5px; letter-spacing:.08em; color:${ss.c}; background:${ss.bg}; border:1px solid ${ss.bd}; padding:1.5px 5px; border-radius:3px;">${ss.t}</div>
+        </div>
+        <div class="mono" style="font-size:10px; color:${rightCol};">${esc(right)}</div>
+      </div>
+      <div class="mono" style="font-size:10.5px; line-height:1.55; color:#A2AEBF; margin-top:6px;">${esc(detail)||'—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---------- header + focus selection ----------
+function updateHeader(positions, obs){
+  const list = (positions && positions.positions) || [];
+  let exposure=0, cur=0, haveP=false;
+  list.forEach(p => {
+    const e=num(p.market_exposure_dollars), yb=num(p.yes_bid), pn=Math.abs(num(p.position)||0);
+    if(e!=null){ exposure+=e; }
+    if(e!=null && yb!=null){ cur += pn*yb/100; haveP=true; }
+  });
+  document.getElementById('hdr-exposure').textContent = list.length ? '$'+exposure.toFixed(2) : (positions && positions.error ? 'n/a' : '$0.00');
+  const pnlEl = document.getElementById('hdr-pnl');
+  if(haveP){ const pnl=cur-exposure; pnlEl.textContent = money(pnl); pnlEl.style.color = pnl>=0?COL.green:COL.red; }
+  else { pnlEl.textContent='—'; pnlEl.style.color='#9AA5B5'; }
+  document.getElementById('hdr-positions').textContent = list.length;
+  // obs time
+  const clk = document.getElementById('hdr-clock');
+  const lu = obs && obs.last_update ? new Date(obs.last_update) : null;
+  if(lu && !isNaN(lu.getTime())){
+    clk.dataset.obs='1';
+    const mins = Math.round((Date.now()-lu.getTime())/60000);
+    document.getElementById('hdr-obs-label').textContent = 'OBS '+ (mins<=0?'now':mins+'m ago');
+    clk.textContent = lu.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit',second:'2-digit'});
+  }
+}
+
+function pickFocus(atRisk, obs){
+  if(userPinnedFocus) return;
+  const ar = ((atRisk && atRisk.at_risk) || []).find(a=>a.best_value) || ((atRisk && atRisk.at_risk)||[])[0];
+  if(ar){ focusCity = ar.city; return; }
+  // else: warmest trending city
+  const stations = (obs && obs.stations) || {};
+  let best=null, bestT=-Infinity;
+  CITY_ORDER.forEach(c => { const t=num((stations[c]||{}).trend_1h); if(t!=null && t>bestT){ bestT=t; best=c; } });
+  if(best) focusCity = best;
+}
+
+// ---------- orchestration ----------
+let STATE = {};
+async function loadAll(){
+  const [obs, sun, preds, mae, lockIn, atRisk, positions, tradeLog, series] = await Promise.all([
+    getJSON('/observations'),
+    getJSON('/sun'),
+    getJSON('/predictions'),
+    getJSON('/analytics/forecasts_vs_actuals'),
+    getJSON('/analytics/lock_in'),
+    getJSON('/at_risk_brackets'),
+    getJSON('/positions'),
+    getJSON('/trade_log'),
+    getJSON('/observations/series?hours=18'),
+  ]);
+  // index predictions by city
+  const predsByCity = {};
+  const plist = preds ? (Array.isArray(preds) ? preds : (preds.predictions||[])) : [];
+  const displayDate = preds && preds.display_date;
+  // predictions_latest holds multiple dates; prefer the display_date row per city, else any
+  plist.forEach(p => {
+    const c=(p.city||'').toLowerCase(); if(!c) return;
+    const d=(p.date||p.trade_date||'').slice(0,10);
+    if(!predsByCity[c] || d===displayDate) predsByCity[c]=p;
+  });
+  STATE = { obs, sun, predsByCity, displayDate, mae, lockIn, atRisk, positions, tradeLog, series };
+  pickFocus(atRisk, obs);
+  const offline = !obs;
+  document.getElementById('live-dot').style.background = offline ? COL.red : COL.green;
+  document.getElementById('live-badge').textContent = offline ? 'OFFLINE' : 'LIVE';
+  document.getElementById('live-badge').style.color = offline ? COL.red : COL.green;
+  renderAll();
+}
+
+function renderAll(){
+  const { obs, sun, predsByCity, displayDate, mae, lockIn, atRisk, positions, tradeLog, series } = STATE;
+  updateHeader(positions, obs);
+  renderBracketRace(obs, sun, atRisk, positions);
+  renderSourceAccuracy(mae);
+  renderBestHour(lockIn);
+  renderChart(series, obs, sun, predsByCity);
+  renderSourceSpread(predsByCity, mae);
+  renderConfidence(predsByCity);
+  renderMatrix(predsByCity, mae, displayDate);
+  renderSignal(atRisk, positions, obs);
+  renderPositions(positions, obs);
+  renderDecisionLog(tradeLog);
+}
+
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
