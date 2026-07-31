@@ -1,12 +1,10 @@
-## How To Trade Weather on Kalshi — A Weather Prediction Market Bot
+# Weather Trader — A Bloomberg-Style Terminal for Trading Weather on Kalshi
 
-If you are searching for how weather prediction markets work, how people try to get an edge in temperature contracts, or how to automate a weather-trading strategy, this repo is built for exactly that problem.
+**A real-time trading terminal and automated bot for [Kalshi](https://kalshi.com) daily high-temperature markets.** One dark-mode dashboard puts every edge in front of you: the live bracket race for each city, the intraday projected-high chart, per-source forecast accuracy, open positions with live P&L, and the full decision log — the kind of at-a-glance command center weather traders normally build by hand.
 
-Weather Trader is an automated system for [Kalshi](https://kalshi.com) daily high-temperature markets. It pulls forecasts from eight weather sources, scores them against NWS settlement truth, learns which sources and prediction modes are working best, and only takes trades that clear configurable guardrails.
+![Weather Trader Terminal — a Bloomberg-style dashboard for Kalshi weather markets: per-city bracket race, intraday projected-high chart, source accuracy, open positions with live P&L, and the decision log.](docs/img/dashboard.png)
 
-In plain English: this is a working example of how someone can approach weather markets with data, discipline, and automation instead of guessing.
-
-![Next trade view: prediction, confidence, source set, and weights.](Forecasts.png)
+If you're searching for **how weather prediction markets work**, how traders find an edge in **temperature contracts**, or how to **automate a weather-trading strategy** end to end, this repo is built for exactly that. Weather Trader pulls forecasts from eight weather sources, scores them continuously against NWS settlement truth, learns which sources and prediction modes are winning, and only takes trades that clear configurable risk guardrails — data, discipline, and automation instead of guessing.
 
 ---
 
@@ -29,8 +27,6 @@ cp .env.example .env      # fill in KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PATH
 docker compose up -d --build
 open http://localhost:8080  # live dashboard
 ```
-
-![Weather Trader Terminal — live dashboard: per-city bracket race, projected-high chart, source accuracy, open positions with live P&L, and the decision log.](docs/img/dashboard.png)
 
 Minimum required secrets: `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_ENV`.
 Recommended first run: keep `KALSHI_ENV=demo` and `WT_SEND_ORDERS=false` until you trust the pipeline.
