@@ -37,6 +37,15 @@ from kalshi_trader import (
 
 # series ticker (KXHIGHCHI) -> city code (il), for mapping positions to obs.
 _SERIES_TO_CITY = {v: k for k, v in SERIES_TICKERS.items()}
+# Only these series are ever managed. Any other portfolio position (e.g. an
+# election market the user holds manually) is never considered or touched.
+_WEATHER_SERIES = frozenset(SERIES_TICKERS.values())
+
+
+def _is_managed_ticker(ticker: str) -> bool:
+    """True only for the daily high-temp weather markets this bot trades."""
+    series = ticker.split("-")[0] if "-" in ticker else ticker
+    return series in _WEATHER_SERIES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -500,13 +509,21 @@ def check_and_exit_live(
     changed = False
     seen: set[str] = set()
 
-    open_yes = [mp for mp in market_positions if _position_count(mp) > 0]
+    open_yes = [
+        mp for mp in market_positions
+        if _position_count(mp) > 0 and _is_managed_ticker(mp.get("ticker") or "")
+    ]
     if not open_yes:
         print("[exit_manager] live: no open YES positions")
     for mp in market_positions:
         ticker = mp.get("ticker") or ""
         position = _position_count(mp)
         if not ticker or position == 0:
+            continue
+        # Never consider or manage anything outside our weather series (e.g. a
+        # manually-held election market). Hard restriction — no exits, no state.
+        if not _is_managed_ticker(ticker):
+            print(f"[exit_manager] live: {ticker} not a managed weather market — ignoring")
             continue
         seen.add(ticker)
         if position < 0:
