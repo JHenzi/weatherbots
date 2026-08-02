@@ -420,6 +420,21 @@ def _to_cents_int(v) -> int | None:
     return int(round(fv))
 
 
+def _position_count(mp: dict) -> int:
+    """Signed contract count across Kalshi field variants.
+
+    The newer "dollars" API omits the integer ``position`` field and returns
+    ``position_fp`` (a string like "3.00") instead. Missing/blank -> 0.
+    """
+    v = mp.get("position")
+    if v is None or v == "":
+        v = mp.get("position_fp")
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _position_cost_cents(mp: dict) -> int | None:
     """Cost basis (cents) of a market position across Kalshi field variants."""
     for key in ("market_exposure", "total_traded", "cost_basis"):
@@ -485,12 +500,12 @@ def check_and_exit_live(
     changed = False
     seen: set[str] = set()
 
-    open_yes = [mp for mp in market_positions if int(mp.get("position") or 0) > 0]
+    open_yes = [mp for mp in market_positions if _position_count(mp) > 0]
     if not open_yes:
         print("[exit_manager] live: no open YES positions")
     for mp in market_positions:
         ticker = mp.get("ticker") or ""
-        position = int(mp.get("position") or 0)
+        position = _position_count(mp)
         if not ticker or position == 0:
             continue
         seen.add(ticker)

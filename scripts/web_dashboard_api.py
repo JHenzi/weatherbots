@@ -948,6 +948,20 @@ def _series_to_city() -> dict:
     kt = _kalshi()
     return {v: k for k, v in kt.SERIES_TICKERS.items()}
 
+def _position_count(mp: dict) -> int:
+    """Signed contract count across Kalshi field variants.
+
+    The newer "dollars" API omits the integer ``position`` field and returns
+    ``position_fp`` (a string like "3.00") instead. Missing/blank -> 0.
+    """
+    v = mp.get("position")
+    if v is None or v == "":
+        v = mp.get("position_fp")
+    try:
+        return int(round(float(v)))
+    except (TypeError, ValueError):
+        return 0
+
 def _money_dollars(mp: dict, dollar_key: str, cents_key: str) -> str:
     """Return a Kalshi money field as a dollar string.
 
@@ -985,7 +999,7 @@ async def get_positions(env: str = "prod"):
     out = []
     for mp in market_positions:
         ticker = mp.get("ticker") or ""
-        position = int(mp.get("position") or 0)
+        position = _position_count(mp)
         if position == 0:
             continue
         event_ticker = _event_ticker_from_market(ticker)
@@ -1018,6 +1032,19 @@ async def get_positions(env: str = "prod"):
             row["yes_ask"] = m.get("yes_ask")
             if row["yes_ask"] is None and m.get("no_bid") is not None:
                 row["yes_ask"] = 100 - int(m["no_bid"])
+            # The market object often omits top-of-book; fall back to the live
+            # orderbook so the panel shows a current bid (and thus P&L).
+            if row["yes_bid"] is None or row["yes_ask"] is None:
+                try:
+                    px, _ = _kalshi().get_yes_pricing(
+                        client, ticker, orderbook_depth=5, fallback_qty=5
+                    )
+                    if row["yes_bid"] is None:
+                        row["yes_bid"] = px.get("best_yes_bid")
+                    if row["yes_ask"] is None:
+                        row["yes_ask"] = px.get("yes_ask")
+                except Exception:
+                    pass
         except Exception:
             row["market_subtitle"] = ticker
             row["yes_bid"] = None
