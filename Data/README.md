@@ -50,9 +50,15 @@ date, city, source_name, predicted_tmax, actual_tmax, absolute_error
 >   2026-03-18 onward is complete.
 > - `lstm` rows were dropped entirely (retired model, no snapshot column to re-grade).
 >
-> Realistic decision-time MAE for every provider is **2.3–3.7°F**. If your analysis
-> produces a sub-1°F MAE for a next-day high forecast, you are almost certainly
-> measuring leakage rather than skill.
+> Realistic MAE for every provider at the 09:00 snapshot is **2.3–3.7°F**. If your
+> analysis produces a sub-1°F MAE for a next-day high forecast, you are almost
+> certainly measuring leakage rather than skill.
+>
+> Note that `WT_DECISION_HOUR` defaults to `9`, but the bot's live orders are placed at
+> **13:00 ET** (NY, Miami) and **14:00 ET** (Chicago, Austin). Forecast accuracy improves
+> through the morning, so this file grades a slightly harder task than the one the bot
+> actually trades: consensus MAE is 2.21°F at 09:00 but 1.78°F at 13:00 and 1.62°F at
+> 14:00. Use `Data/intraday_forecasts.csv` directly if you want to score a specific hour.
 
 **`eval_history.csv`** — per-trade evaluation joined to settlement. Contains the
 model's predicted mean (`mu_tmax_f`), the settled actual (`settlement_tmax_f`),

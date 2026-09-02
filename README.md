@@ -189,12 +189,30 @@ This section documents observed system performance, source quality, and the guar
 | NYC (NY) | **1.95°F** | +1.17°F (runs warm) | Yes — `blend` mode |
 | Miami (FL) | **3.40°F** | −2.89°F (runs cold) | Yes — `blend` mode |
 
-Overall 14-day consensus MAE is **2.17°F**; across the full re-graded history it is
-**2.27°F**. Miami is materially harder than the other three — sea-breeze convection makes
-the afternoon peak hard to time, and it is the city most worth treating cautiously.
+Overall 14-day consensus MAE is **2.17°F** at 09:00; across the full re-graded history it
+is **2.27°F**.
 
-The previously published figures (0.67–0.87°F per city, ~1.0°F on stable days) measured a
-23:00 nowcast, not a forecast. They should not be used as a benchmark.
+**But 09:00 is not when the bot buys.** Live orders go out at 13:00 ET (NY, Miami) and
+14:00 ET (Chicago, Austin — 13:00 local). Accuracy improves materially in those four hours,
+so the figures above understate the forecast the bot actually trades on:
+
+| Snapshot hour | Consensus MAE | NY | IL | TX | FL |
+|---------------|---------------|-----|-----|-----|-----|
+| 09:00 | 2.21°F | 2.14 | 1.62 | 1.68 | 3.39 |
+| 10:00 *(morning strategy, shadow-only)* | 2.18°F | 2.14 | 1.60 | 1.63 | **3.34** |
+| **13:00 — live buy (NY, FL)** | **1.78°F** | 2.02 | 1.54 | 1.55 | **2.03** |
+| **14:00 — live buy (IL, TX)** | **1.62°F** | 2.00 | 1.41 | 1.57 | **1.50** |
+
+At the moment capital is actually committed, consensus MAE is **≈1.5°F**.
+
+Miami is the outlier and the reason the morning strategy stays in shadow mode: at 10:00 its
+MAE is 3.34°F, and by 14:00 it is 1.50°F — the *best* of the four cities. Sea-breeze
+convection makes the Miami peak nearly unforecastable in the morning and quite tractable by
+early afternoon. New York barely improves across the same window (2.14 → 2.00), so the value
+of waiting is highly city-dependent.
+
+The figures published before 2026-09-01 (0.67–0.87°F per city, ~1.0°F on stable days)
+measured a 23:00 nowcast, not a forecast, and should not be used as a benchmark.
 
 On weather-transition days (warm or cold fronts), errors of 3–7°F are possible. These are
 not bugs — every provider fails simultaneously because the NWP models miss the front
