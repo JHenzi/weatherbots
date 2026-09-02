@@ -1,0 +1,58 @@
+diff --git a/intraday_pulse.py b/intraday_pulse.py
+index 710f731..093c734 100644
+--- a/intraday_pulse.py
++++ b/intraday_pulse.py
+@@ -1172,18 +1172,16 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> tuple[float |
+     forecast_url = props.get("forecast")
+     if not forecast_url:
+         return (None, {})
+     r2 = session.get(str(forecast_url), headers=headers, timeout=30)
+     if r2.status_code != 200:
+         return (None, {})
+     js2 = r2.json()
+     periods = (js2.get("properties") or {}).get("periods") or []
+-    best = None
+-    best_ctx: dict[str, object] = {}
+     for p in periods:
+         st = p.get("startTime")
+         if not st:
+             continue
+         try:
+             dt_start = dt.datetime.fromisoformat(str(st))
+         except Exception:
+             continue
+@@ -1193,27 +1191,23 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> tuple[float |
+             return (
+                 _safe_float(p.get("temperature")),
+                 {
+                     "condition_text": str(p.get("shortForecast") or p.get("detailedForecast") or "").strip(),
+                     "condition_icon": str(p.get("icon") or "").strip(),
+                     "cloud_cover": None,
+                 },
+             )
+-        v = _safe_float(p.get("temperature"))
+-        if v is None:
+-            continue
+-        if best is None or v >= best:
+-            best = v
+-            best_ctx = {
+-                "condition_text": str(p.get("shortForecast") or p.get("detailedForecast") or "").strip(),
+-                "condition_icon": str(p.get("icon") or "").strip(),
+-                "cloud_cover": None,
+-            }
+-    return (best, best_ctx)
++    # No daytime period for trade_dt. NWS drops the daytime period once it has passed, so
++    # after ~19:00 local only "Tonight" (isDaytime=False) remains for today -- and its
++    # temperature is the overnight LOW, not the daily max. Falling back to it made
++    # weather.gov report ~82F for Miami on days that settled at 91-94F, a -15F bias on 99%
++    # of graded rows. Returning None instead lets the ensemble drop the provider for this
++    # run, which is correct: we have no daytime max forecast to offer.
++    return (None, {})
+ 
+ 
+ def _parse_args():
+     p = argparse.ArgumentParser(description="Fetch forecasts at specific intraday times.")
+     p.add_argument("--trade-date", type=str, required=True, help="YYYY-MM-DD (event date the forecasts target)")
+     p.add_argument("--out-csv", type=str, default="Data/intraday_forecasts.csv")
+     p.add_argument("--weights-json", type=str, default="Data/weights.json")
+     p.add_argument("--env", type=str, default=os.getenv("KALSHI_ENV", "demo"))

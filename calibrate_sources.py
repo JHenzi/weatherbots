@@ -37,13 +37,40 @@ def _parse_args():
     return p.parse_args()
 
 
+# Hour of day (local) at which the bot actually commits capital. Provider snapshots are
+# graded against this moment, not against the last snapshot of the day.
+DECISION_HOUR = int(os.getenv("WT_DECISION_HOUR", "9"))
+
+
+def _run_hour(row: dict) -> int | None:
+    """Local hour of a prediction row, from run_ts (preferred) or timestamp."""
+    for key in ("run_ts", "timestamp"):
+        raw = (row.get(key) or "").strip()
+        if len(raw) >= 13 and raw[10] in ("T", " "):
+            try:
+                return int(raw[11:13])
+            except ValueError:
+                continue
+    return None
+
+
 def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
     if db is not None and getattr(db, "_pg_read_enabled", lambda: False)():
         try:
             return db.get_predictions_for_date(trade_date)
         except Exception as e:
             print(f"Postgres read failed ({e}), falling back to CSV for predictions")
-    by_city: dict[str, dict] = {}
+    # Pick the snapshot nearest DECISION_HOUR rather than the last row of the day.
+    #
+    # Keeping the last row leaks the outcome into the label: by 23:00 the day's max has
+    # already happened, so providers are scored on how fast they converge to a known
+    # value rather than on how well they forecast at decision time. Measured over 30 days
+    # this inverts the provider ranking outright -- weather.gov grades at 2.29F MAE on the
+    # 09:00 snapshot and 15.26F on the 23:00 one, and visual-crossing's apparent 0.86F is
+    # an artifact of late-day convergence, not skill. Since these MAEs drive the
+    # 1/MAE^2 ensemble weights, the bot has been down-weighting its best decision-time
+    # providers to near zero.
+    best: dict[str, tuple[int, str, dict]] = {}
     with open(path, "r", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
@@ -52,9 +79,14 @@ def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
             city = (row.get("city") or "").strip()
             if not city:
                 continue
-            # keep last row (latest run) for that date/city
-            by_city[city] = row
-    return by_city
+            hour = _run_hour(row)
+            # Rows without a parseable hour sort last but remain usable as a fallback.
+            dist = 99 if hour is None else abs(hour - DECISION_HOUR)
+            stamp = (row.get("run_ts") or row.get("timestamp") or "").strip()
+            prev = best.get(city)
+            if prev is None or (dist, stamp) < (prev[0], prev[1]):
+                best[city] = (dist, stamp, row)
+    return {city: row for city, (_d, _s, row) in best.items()}
 
 
 def _load_existing_performance_keys(perf_path: str) -> set[tuple[str, str, str]]:

@@ -1,0 +1,26 @@
+{
+  "positions": {
+    "KXHIGHAUS-26AUG31-T97": {
+      "exit_reason": "bucket_breach;too_hot;proj=99.10>hi=97.0+1.5",
+      "exited_ts": "2026-08-31T15:30:02.520506-04:00",
+      "last_seen": "2026-08-31T18:00:02.403074-04:00"
+    },
+    "KXHIGHCHI-26AUG30-T86": {
+      "last_bid": 99,
+      "last_seen": "2026-08-30T18:00:02.671743-04:00",
+      "peak_bid": 99
+    },
+    "KXHIGHCHI-26AUG31-T89": {
+      "exit_reason": "bucket_breach;too_hot;proj=95.28>hi=89.0+1.5",
+      "exited_ts": "2026-08-31T14:30:02.058325-04:00",
+      "last_bid": 5,
+      "last_seen": "2026-08-31T14:30:02.058325-04:00",
+      "peak_bid": 5
+    },
+    "KXHIGHNY-26AUG30-T82": {
+      "last_bid": 99,
+      "last_seen": "2026-08-30T18:00:02.671743-04:00",
+      "peak_bid": 99
+    }
+  }
+}

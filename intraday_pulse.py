@@ -1177,8 +1177,6 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> tuple[float | 
         return (None, {})
     js2 = r2.json()
     periods = (js2.get("properties") or {}).get("periods") or []
-    best = None
-    best_ctx: dict[str, object] = {}
     for p in periods:
         st = p.get("startTime")
         if not st:
@@ -1198,17 +1196,13 @@ def forecast_tmax_weather_gov(*, city: str, trade_dt: dt.date) -> tuple[float | 
                     "cloud_cover": None,
                 },
             )
-        v = _safe_float(p.get("temperature"))
-        if v is None:
-            continue
-        if best is None or v >= best:
-            best = v
-            best_ctx = {
-                "condition_text": str(p.get("shortForecast") or p.get("detailedForecast") or "").strip(),
-                "condition_icon": str(p.get("icon") or "").strip(),
-                "cloud_cover": None,
-            }
-    return (best, best_ctx)
+    # No daytime period for trade_dt. NWS drops the daytime period once it has passed, so
+    # after ~19:00 local only "Tonight" (isDaytime=False) remains for today -- and its
+    # temperature is the overnight LOW, not the daily max. Falling back to it made
+    # weather.gov report ~82F for Miami on days that settled at 91-94F, a -15F bias on 99%
+    # of graded rows. Returning None instead lets the ensemble drop the provider for this
+    # run, which is correct: we have no daytime max forecast to offer.
+    return (None, {})
 
 
 def _parse_args():
