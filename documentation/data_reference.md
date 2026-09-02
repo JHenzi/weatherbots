@@ -136,6 +136,13 @@ This document describes the purpose and schema of the key data files used and ge
 ### `source_performance.csv`
 - **Purpose**: Tracks the error of every individual weather source for every day.
 - **Key Columns**: `date`, `city`, `source_name`, `predicted_tmax`, `actual_tmax`, `absolute_error`.
+- **Grading convention**: `predicted_tmax` is taken from the **09:00 local same-day**
+  snapshot (`WT_DECISION_HOUR`, default `9`) — the moment the bot trades. Before
+  2026-09-01 this file graded the last snapshot of the day (23:00), which leaked the
+  realized outcome into the label and inverted the provider ranking. Re-graded in place
+  by `scripts/regrade_source_performance.py`; see `Data/README.md` for coverage caveats.
+- **Feeds**: `prediction_mae.get_rolling_mae_per_city_source()` → the live inverse-MAE
+  ensemble weights. Corrupting this file directly corrupts trading.
 
 ### `daily_metrics.csv`
 - **Purpose**: Aggregated daily performance metrics used for budget allocation.

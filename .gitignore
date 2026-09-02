@@ -47,3 +47,7 @@ __pycache__/
 *.pywz
 *.pyzw
 *.pyzwz
+
+# Backup produced by scripts/regrade_source_performance.py
+*.leaked.bak
+Data/*.tmp

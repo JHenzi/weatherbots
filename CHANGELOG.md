@@ -6,6 +6,46 @@ A rough history of major changes, derived from git. For full details see the [do
 
 ## 2026
 
+### 2026-09 — Label-leakage fix: provider grading moved to decision time
+
+The adaptive source weighting was being trained on a leaked label, which inverted the
+provider ranking and made the learned ensemble measurably worse than a plain average.
+
+- **Fixed** `intraday_pulse.forecast_tmax_weather_gov()` returned the **overnight low** as the
+  daily high whenever no `isDaytime` period matched the target date. NWS drops the daytime
+  period once it has passed, so after ~19:00 local only "Tonight" remained and its
+  temperature was used as the forecast. Measured signed bias −15.01°F, under-predicting on
+  99% of 248 graded rows (Miami reported 81–85°F on days settling 91–100°F). Now returns
+  `None`, so the ensemble drops the provider for that run.
+- **Fixed** `calibrate_sources._load_predictions_for_date()` kept the **last** row per
+  city/date. On 60 of 64 recent days that row was written at 23:00, after the day's high
+  had already occurred, so providers were scored on convergence to a known outcome rather
+  than on forecast skill. Now selects the snapshot nearest `WT_DECISION_HOUR` (default
+  `9`), preferring the **same-day** row over the day-ahead forecast for the same date —
+  both exist in `predictions_history.csv` and both have an 09:00 entry.
+- **Added** `scripts/regrade_source_performance.py` — rebuilds `Data/source_performance.csv`
+  from the 09:00 same-day snapshot in `intraday_forecasts.csv`, graded against the settled
+  actuals already on file. Ground truth is reused, never recomputed. The seven-month
+  history was re-graded in place (8,129 → 6,864 rows); the original is retained as
+  `source_performance.csv.leaked.bak`.
+- **Changed** Provider MAEs collapse from a distorted 0.86–14.85°F range into a realistic
+  2.28–3.73°F band. `weather.gov` moves from ~0% ensemble weight to 25% in Chicago and 24%
+  in Austin. Walk-forward on 432 out-of-sample city-days: consensus MAE **2.170°F → 1.654°F**
+  (equal-weighting scores 2.041°F, i.e. the pre-fix adaptive scheme was worse than a plain
+  average).
+- **Changed** README accuracy figures and the "who to trust" leaderboard were rebuilt — the
+  previously published per-city MAEs (0.67–0.87°F) and the "trust Visual Crossing above
+  everything" guidance were artifacts of the leaked label. True decision-time consensus MAE
+  is 2.27°F.
+- **Added** `adaptive_ensemble.py`, `decision_policy.py`, `feedback_loop.py` and
+  `tests/test_adaptive_engine.py` from the architecture audit. `feedback_loop.py` fits an
+  isotonic calibration of `model_prob_yes` against realized outcomes (+4.7% Brier
+  out-of-sample) and gates parameter auto-tuning behind a PnL significance test — realized
+  edge is currently +$87 over 271 trades at t = 0.79, i.e. not distinguishable from zero.
+- **Note** `adaptive_ensemble.py` is **not wired in**. Measured against the corrected
+  baseline it is 4.4% *worse* (1.727°F vs 1.654°F), and a 72-config sweep could not beat
+  the existing flat 7-day `1/MAE²` scheme. The gain was the label fix, not the machinery.
+
 ### 2026-03 — 10 AM morning strategy with observation-based exits
 
 - **Changed** Morning Kelly trade moved from 07:15 to **10:00 ET** (crontab). Empirical intraday MAE at 10:00 (~2.4°F overall, FL ~3.6°F) is meaningfully better than the 07:00 baseline (~2.6–3.8°F), and order-book liquidity is still healthy before the afternoon settlement window.

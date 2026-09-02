@@ -30,6 +30,30 @@ for MAE.
 date, city, source_name, predicted_tmax, actual_tmax, absolute_error
 ```
 
+> **Grading convention (changed 2026-09-01 — read this before using the file).**
+> `predicted_tmax` is each provider's forecast taken from the **09:00 local same-day
+> snapshot**, which is when the bot commits capital. `actual_tmax` is the settled NWS
+> CLI high.
+>
+> Prior to 2026-09-01 this file graded the *last* snapshot of each day — written at
+> 23:00, after the day's high had already occurred. That leaked the outcome into the
+> label: sources were effectively scored on how quickly they converged to a value that
+> was already known, not on forecast skill. It distorted the ranking severely
+> (weather.gov measured 15.26°F under the old convention and 2.29°F under the new one)
+> and any provider comparison drawn from the old file is unreliable.
+>
+> The history was re-graded in place by `scripts/regrade_source_performance.py`.
+> Two consequences for anyone analysing this data:
+> - Rows before **2026-03-18** are absent for google-weather, openweathermap,
+>   pirateweather and weather.gov — those providers were not yet logged to
+>   `intraday_forecasts.csv`, so they cannot be re-graded. Coverage from
+>   2026-03-18 onward is complete.
+> - `lstm` rows were dropped entirely (retired model, no snapshot column to re-grade).
+>
+> Realistic decision-time MAE for every provider is **2.3–3.7°F**. If your analysis
+> produces a sub-1°F MAE for a next-day high forecast, you are almost certainly
+> measuring leakage rather than skill.
+
 **`eval_history.csv`** — per-trade evaluation joined to settlement. Contains the
 model's predicted mean (`mu_tmax_f`), the settled actual (`settlement_tmax_f`),
 whether the chosen market bucket hit (`bucket_hit`), and realized P&L. Use it to

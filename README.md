@@ -172,58 +172,90 @@ This section documents observed system performance, source quality, and the guar
 
 ### Observed Prediction Accuracy (MAE)
 
-**14-day rolling MAE by city** (consensus ensemble, production runs):
+> **Corrected 2026-09-01.** Every accuracy figure previously published in this section was
+> overstated by a label-leakage bug. Provider forecasts were graded against the *last*
+> snapshot of the day — written at 23:00, after the day's high had already occurred — so
+> sources were scored on how fast they converged to a known outcome rather than on how well
+> they forecast at trade time. The numbers below are re-graded against the **09:00 same-day
+> snapshot**, which is what the bot actually trades on. See
+> `scripts/regrade_source_performance.py`.
 
-| City | MAE (14d) | Typical cold bias | Bias correction applied |
-|------|-----------|-------------------|------------------------|
-| Miami (FL) | **0.67°F** | +0.89°F | Yes — `blend` mode |
-| Chicago (IL) | **0.78°F** | +0.55°F | Yes — `blend` mode |
-| Austin (TX) | **0.84°F** | +0.55°F | Yes — `blend` mode |
-| NYC (NY) | **0.87°F** | +0.51°F | Yes — `blend` mode |
+**14-day rolling MAE by city** (consensus ensemble, graded at decision time):
 
-On stable weather days (no front transitions), production MAE averages **~1.0°F**. This is the regime where all four providers cluster tightly and confidence scores are high.
+| City | MAE (14d) | Mean signed bias | Bias correction applied |
+|------|-----------|------------------|------------------------|
+| Chicago (IL) | **1.45°F** | +0.18°F | Yes — `blend` mode |
+| Austin (TX) | **1.89°F** | −1.89°F (runs cold) | Yes — `blend` mode |
+| NYC (NY) | **1.95°F** | +1.17°F (runs warm) | Yes — `blend` mode |
+| Miami (FL) | **3.40°F** | −2.89°F (runs cold) | Yes — `blend` mode |
 
-On weather-transition days (warm or cold fronts), errors of 3–7°F are possible. These are not bugs — every provider fails simultaneously because the NWP models miss the front timing. The guardrails below address this.
+Overall 14-day consensus MAE is **2.17°F**; across the full re-graded history it is
+**2.27°F**. Miami is materially harder than the other three — sea-breeze convection makes
+the afternoon peak hard to time, and it is the city most worth treating cautiously.
 
-### Source Quality Ranking
+The previously published figures (0.67–0.87°F per city, ~1.0°F on stable days) measured a
+23:00 nowcast, not a forecast. They should not be used as a benchmark.
 
-Eight sources are scored continuously against NWS CLI actuals. Weights are updated nightly via inverse-MAE.
-
-| Source | Role | Notes |
-|--------|------|-------|
-| **Visual Crossing** | Highest weight (40–59% across cities) | Most consistent; best for IL, TX |
-| **Tomorrow.io** | Second tier (15–30%) | Strong for TX and transitional days |
-| **Open-Meteo** | Second tier (10–30%) | Good for IL, NY |
-| **Pirate Weather** | Third tier (10–20%) | Reliable background signal |
-| **WeatherAPI** | Low weight, used as divergence signal | Runs 1–4°F warm; useful as a leading warm-front indicator |
-| **OpenWeatherMap** | Very low weight (<1%) | Low accuracy vs. NWS actuals |
-| **Google Weather** | Very low weight (<1%) | Included but rarely decisive |
-| **Weather.gov (NWS)** | Very low weight (<1%) | Ironically not the most accurate at forecast time |
-| ~~LSTM~~ | **Retired** | Was 20–35°F off due to stale training data |
+On weather-transition days (warm or cold fronts), errors of 3–7°F are possible. These are
+not bugs — every provider fails simultaneously because the NWP models miss the front
+timing. The guardrails below address this.
 
 ### Who To Trust — Live Source Leaderboard
 
-The dashboard's **Source Accuracy** panel ranks every source by mean absolute error against NWS settlement truth. This is the single most useful "who do I trust" signal the system produces, from **6,971 scored** forecast/actual pairs:
+Eight sources are scored continuously against NWS CLI settlement truth and reweighted via
+inverse-MAE. From **6,864 scored** forecast/actual pairs, all graded at the 09:00 decision
+hour:
 
-| Rank | Source | MAE (°F) | Trust |
-|------|--------|----------|-------|
-| 1 | **Visual Crossing** | **0.86** | ✅ Sharpest source — the only one that beats the blended ensemble |
-| — | *Ensemble (blended)* | *1.20* | *Reference — the weighted consensus the bot actually trades* |
-| 2 | Tomorrow.io | 2.18 | 👍 Solid mid-tier |
-| 3 | Open-Meteo | 2.61 | 👍 Solid mid-tier |
-| 4 | Pirate Weather | 2.62 | 👍 Reliable background signal |
-| 5 | WeatherAPI | 3.34 | ⚠️ Runs warm — useful as a divergence flag, not a primary |
-| 6 | OpenWeatherMap | 8.24 | ❌ Low value |
-| 7 | Google Weather | 10.05 | ❌ Low value |
-| 8 | ~~LSTM~~ | 12.22 | ❌ Retired (stale training data) |
-| 9 | Weather.gov (NWS) | 14.80 | ❌ Worst — see below |
+| Rank | Source | MAE (°F) | Signed bias | Trust |
+|------|--------|----------|-------------|-------|
+| — | *Ensemble (blended)* | *2.27* | *−1.06* | *Reference — the weighted consensus the bot trades* |
+| 1 | **Google Weather** | **2.28** | −1.64 | ✅ Sharpest single source |
+| 2 | **Weather.gov (NWS)** | **2.29** | −0.81 | ✅ Statistically tied for sharpest |
+| 3 | OpenWeatherMap | 2.48 | −0.58 | ✅ Lowest bias of any source |
+| 4 | Visual Crossing | 2.60 | −1.47 | 👍 Solid mid-tier |
+| 5 | Pirate Weather | 2.73 | −1.83 | 👍 Reliable background signal |
+| 6 | Tomorrow.io | 2.91 | −1.17 | 👍 Solid mid-tier |
+| 7 | Open-Meteo | 3.02 | −0.61 | 👍 Low bias, wider spread |
+| 8 | WeatherAPI | 3.73 | **+2.21** | ⚠️ Runs warm — useful as a divergence flag, not a primary |
+| — | ~~LSTM~~ | — | — | ❌ Retired (stale training data) |
 
 **The learning:**
 
-- **Trust Visual Crossing above everything.** At 0.86°F it is the only individual source that beats the blended ensemble (1.20°F). When it disagrees with the pack, it is usually right.
-- **The ensemble beats every other single source.** Inverse-MAE weighting lets the good sources dominate and keeps the weak ones from doing damage — which is exactly why the bot trades the blend, not any one feed.
-- **Brand recognition ≠ forecast accuracy.** Google (10.05°F) and even **Weather.gov / NWS itself (14.80°F)** rank at the bottom for *forecast-time* next-day highs. NWS is the authority that **settles** the market — that does not make it the best at **predicting** it. Don't confuse the scorekeeper with the sharpest forecaster.
-- **A tight mid-tier of Tomorrow.io, Open-Meteo, and Pirate Weather (~2.2–2.6°F)** provides the diversification that makes the ensemble robust on transition days.
+- **No single source beats the ensemble.** The blend (2.27°F) edges out the best individual
+  feed, and the eight sources sit in a tight 2.3–3.7°F band. There is no oracle here — the
+  diversification *is* the edge, which is exactly why the bot trades the blend.
+- **The earlier "trust Visual Crossing above everything" advice was an artifact.** Its
+  headline 0.86°F came from being graded at 23:00, when it had already converged on the
+  realized high. At decision time it is a respectable mid-tier source, 4th of 8.
+- **Weather.gov was never the worst — it was the most mis-measured.** Its published 14.80°F
+  came from a second bug: when the NWS daytime period rolls off after ~19:00, the fetcher
+  fell back to the *nighttime* period and returned the overnight low as if it were the
+  daily high. Fixed; it now ranks joint-first.
+- **Nearly every source runs cold.** Seven of eight under-predict the daily high, which is
+  what the per-city `bias_correction_f` in `Data/city_metadata.json` exists to absorb.
+  WeatherAPI is the lone warm outlier (+2.21°F) and is genuinely useful as a
+  warm-front leading indicator.
+
+### Source Weighting
+
+Weights are recomputed nightly from a rolling 7-day inverse-MAE window, so they track recent
+skill rather than sitting at fixed values. Representative weights after the 2026-09-01
+re-grade:
+
+| Source | Weight range across cities | Notes |
+|--------|---------------------------|-------|
+| **WeatherAPI** | 3–32% | Most city-dependent: top source in TX, weakest in NY |
+| **Weather.gov (NWS)** | 6–25% | Top-weighted in IL and TX; was ~0% before the fetcher fix |
+| **Google Weather** | 9–26% | Strongest in NY |
+| **Open-Meteo** | 4–22% | Strong in IL |
+| **Tomorrow.io** | 3–18% | Strong in NY |
+| **Pirate Weather** | 7–17% | Reliable background signal |
+| **OpenWeatherMap** | 8–12% | Lowest signed bias of any source |
+| **Visual Crossing** | 7–11% | Consistent mid-tier across all cities |
+| ~~LSTM~~ | **Retired** | Was 20–35°F off due to stale training data |
+
+No source dominates, and the spread across cities is wide — a provider that leads in Texas
+can be last in New York. That is the case for weighting per-city rather than globally.
 
 ### Guardrails and Trades Avoided
 

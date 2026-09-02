@@ -42,13 +42,13 @@ def _parse_args():
 DECISION_HOUR = int(os.getenv("WT_DECISION_HOUR", "9"))
 
 
-def _run_hour(row: dict) -> int | None:
-    """Local hour of a prediction row, from run_ts (preferred) or timestamp."""
+def _run_stamp(row: dict) -> tuple[str, int] | None:
+    """(local date, local hour) of a prediction row, from run_ts (preferred) or timestamp."""
     for key in ("run_ts", "timestamp"):
         raw = (row.get(key) or "").strip()
         if len(raw) >= 13 and raw[10] in ("T", " "):
             try:
-                return int(raw[11:13])
+                return (raw[:10], int(raw[11:13]))
             except ValueError:
                 continue
     return None
@@ -70,7 +70,7 @@ def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
     # an artifact of late-day convergence, not skill. Since these MAEs drive the
     # 1/MAE^2 ensemble weights, the bot has been down-weighting its best decision-time
     # providers to near zero.
-    best: dict[str, tuple[int, str, dict]] = {}
+    best: dict[str, tuple[tuple[int, int], str, dict]] = {}
     with open(path, "r", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
@@ -79,13 +79,21 @@ def _load_predictions_for_date(path: str, trade_date: str) -> dict[str, dict]:
             city = (row.get("city") or "").strip()
             if not city:
                 continue
-            hour = _run_hour(row)
-            # Rows without a parseable hour sort last but remain usable as a fallback.
-            dist = 99 if hour is None else abs(hour - DECISION_HOUR)
+            parsed = _run_stamp(row)
             stamp = (row.get("run_ts") or row.get("timestamp") or "").strip()
+            if parsed is None:
+                # Rows without a parseable run time sort last but remain a fallback.
+                rank = (2, 99)
+            else:
+                run_date, hour = parsed
+                # Prefer a SAME-DAY snapshot over the day-ahead forecast for the same date.
+                # Both exist in predictions_history (each run writes today and tomorrow), and
+                # both have a 09:00 row, so without this the grader would score the harder
+                # day-ahead task rather than the same-day forecast the bot actually trades.
+                rank = (0 if run_date == trade_date else 1, abs(hour - DECISION_HOUR))
             prev = best.get(city)
-            if prev is None or (dist, stamp) < (prev[0], prev[1]):
-                best[city] = (dist, stamp, row)
+            if prev is None or (rank, stamp) < (prev[0], prev[1]):
+                best[city] = (rank, stamp, row)
     return {city: row for city, (_d, _s, row) in best.items()}
 
 
